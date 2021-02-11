@@ -1,5 +1,5 @@
 use bip39::{Language, Mnemonic, MnemonicType};
-use substrate_subxt::sp_core::sr25519::Pair;
+use subxt::sp_core::sr25519::Pair;
 use zeroize::Zeroize;
 
 use crate::error::Error;
@@ -62,7 +62,7 @@ impl KeyPair {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use substrate_subxt::sp_core::Pair;
+    use subxt::sp_core::Pair;
 
     #[test]
     fn create() {
