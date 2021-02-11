@@ -1,10 +1,25 @@
 <h1 align="center">Webb CLI</h1>
 
 <p align="center">
-    <strong> 🕸️ The Webb Command-line tools 🧰</strong>
+    <strong>🕸️ The Webb Command-line tools 🧰</strong>
 </p>
 
 <br />
+
+
+## Install ⛹️
+
+#### Unix (Linux, macOS, WSL2, ..)
+
+```
+$ curl -fsSL https://git.io/get-webb.sh | sh
+```
+
+#### Windows
+
+```
+$ iwr https://git.io/get-webb.ps1 -useb | iex
+```
 
 ## Safety
 
