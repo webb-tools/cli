@@ -1,0 +1,22 @@
+[package]
+name = "webb-cli"
+version = "0.1.0"
+authors = [
+   "Webb Developers <drew@webb.tools>",
+   "Shady Khalifa <shekohex@gmail.com>"
+]
+edition = "2018"
+
+
+[[bin]]
+name = "webb"
+path = "src/main.rs"
+features = ["cli"]
+
+[dependencies]
+
+
+[features]
+default = ["cli"]
+cli = []
+
