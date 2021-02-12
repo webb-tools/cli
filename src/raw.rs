@@ -18,16 +18,14 @@ pub struct AccountRaw {
     pub is_default: bool,
 }
 
-impl AccountRaw {
-    pub fn into_account(self, password: &str) -> Account {
-        let uuid = uuid::Uuid::from_str(&self.uuid)
+impl From<AccountRaw> for Account {
+    fn from(raw: AccountRaw) -> Self {
+        let uuid = uuid::Uuid::from_str(&raw.uuid)
             .expect("Failed to parse account uuid");
         Account::init(
             uuid,
-            self.alias,
-            self.seed
-                .try_into()
-                .expect("seed must be at least 32 bytes"),
+            raw.alias,
+            raw.seed.try_into().expect("seed must be at least 32 bytes"),
         )
     }
 }
