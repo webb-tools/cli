@@ -1,5 +1,6 @@
 #![deny(unsafe_code)]
 
+pub mod account;
 pub mod error;
-pub mod keystore;
+mod keystore;
 pub mod runtime;
