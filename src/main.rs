@@ -4,10 +4,12 @@ use structopt::StructOpt;
 
 mod commands;
 mod context;
+mod database;
 mod raw;
 mod utils;
 
 use commands::{CommandExec, SubCommand};
+use context::ExecutionContext;
 
 /// 🕸️  The Webb Command-line tools 🧰
 ///
@@ -29,6 +31,12 @@ struct Opts {
     /// A level of verbosity, and can be used multiple times
     #[structopt(short, long, parse(from_occurrences))]
     verbose: i32,
+    /// Enalbe unsafe operations.
+    ///
+    /// like delete an account, read the password from passed options
+    /// and many other unsafe operations.
+    #[structopt(long = "unsafe")]
+    unsafe_flag: bool,
     #[structopt(subcommand)]
     sub: SubCommand,
 }
@@ -43,14 +51,20 @@ async fn main(args: Opts) -> anyhow::Result<()> {
         3 => log::LevelFilter::Debug,
         _ => log::LevelFilter::max(),
     };
-    env_logger::builder().filter_level(log_level).init();
+    // setup logger
+    env_logger::builder()
+        .format_timestamp(None)
+        .filter_module("webb", log_level)
+        .init();
 
     let dirs = ProjectDirs::from("tools", "webb", "webb-cli")
         .context("getting project data")?;
 
     let db_path = dirs.data_dir().join("db");
-    let db = sled::open(db_path)?;
-    let mut context = context::Context::new(db.clone(), dirs)?;
+    let db = sled::open(db_path).context("open database")?;
+
+    let mut context = ExecutionContext::new(db.clone(), dirs)
+        .context("create execution context")?;
 
     match args.sub {
         SubCommand::Show(cmd) => cmd.exec(&mut context).await?,

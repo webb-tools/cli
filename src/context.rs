@@ -5,13 +5,14 @@ use crate::raw::AccountRaw;
 use anyhow::Result;
 use directories_next::ProjectDirs;
 use secrecy::{ExposeSecret, SecretString};
-use subxt::sp_core::sr25519::Public;
+use subxt::sp_core::sr25519::Pair as Sr25519Pair;
 use webb_cli::account;
+use webb_cli::keystore::PublicFor;
 
 /// Commands Execution Context.
 ///
 /// Holds the state needed for all commands.
-pub struct Context {
+pub struct ExecutionContext {
     /// All Saved accounts.
     accounts: Vec<AccountRaw>,
     /// The Main Database.
@@ -20,7 +21,7 @@ pub struct Context {
     dirs: ProjectDirs,
 }
 
-impl Context {
+impl ExecutionContext {
     pub fn new(db: sled::Db, dirs: ProjectDirs) -> Result<Self> {
         let accounts = Self::load_accounts(&db)?;
         let context = Self { accounts, db, dirs };
@@ -72,9 +73,8 @@ impl Context {
         &mut self,
         alias: String,
         password: SecretString,
-    ) -> Result<(Public, String)> {
-        let (account, paper_key) =
-            account::generate(alias, password.expose_secret());
+    ) -> Result<(PublicFor<Sr25519Pair>, String)> {
+        let (account, paper_key) = account::generate(alias);
         let address = account.address;
         let uuid = account.uuid.to_string();
         let mut raw = AccountRaw {
@@ -102,12 +102,8 @@ impl Context {
         alias: String,
         password: SecretString,
         paper_key: Mnemonic,
-    ) -> Result<Public> {
-        let account = account::restore(
-            alias,
-            password.expose_secret(),
-            paper_key.phrase(),
-        )?;
+    ) -> Result<PublicFor<Sr25519Pair>> {
+        let account = account::restore(alias, paper_key.phrase())?;
         let address = account.address;
         let uuid = account.uuid.to_string();
         let mut raw = AccountRaw {

@@ -4,16 +4,20 @@ use zeroize::Zeroize;
 
 use crate::error::Error;
 
+/// Public key type for Runtime
+pub type PublicFor<P> = <P as subxt::sp_core::Pair>::Public;
+/// Seed type for Runtime
+pub type SeedFor<P> = <P as subxt::sp_core::Pair>::Seed;
+
 pub struct KeyPair {
     pair: Sr25519Pair,
     phrase: Option<String>,
-    seed: [u8; 32],
+    seed: SeedFor<Sr25519Pair>,
 }
 
 impl KeyPair {
-    pub fn new(password: &str) -> Self {
-        let (pair, phrase, seed) =
-            Sr25519Pair::generate_with_phrase(Some(password));
+    pub fn new(password: Option<&str>) -> Self {
+        let (pair, phrase, seed) = Sr25519Pair::generate_with_phrase(password);
         KeyPair {
             pair,
             phrase: Some(phrase),
@@ -21,8 +25,11 @@ impl KeyPair {
         }
     }
 
-    pub fn restore(phrase: &str, password: &str) -> Result<Self, Error> {
-        let (pair, seed) = Sr25519Pair::from_phrase(phrase, Some(password))
+    pub fn restore(
+        phrase: &str,
+        password: Option<&str>,
+    ) -> Result<Self, Error> {
+        let (pair, seed) = Sr25519Pair::from_phrase(phrase, password)
             .map_err(Error::SecretString)?;
         Ok(KeyPair {
             pair,
@@ -41,11 +48,15 @@ impl KeyPair {
         drop(self.pair);
     }
 
+    pub fn public(&self) -> PublicFor<Sr25519Pair> {
+        self.pair.public()
+    }
+
     pub fn pair(&self) -> &Sr25519Pair {
         &self.pair
     }
 
-    pub fn seed(&self) -> [u8; 32] {
+    pub fn seed(&self) -> SeedFor<Sr25519Pair> {
         self.seed
     }
 
@@ -66,14 +77,14 @@ mod tests {
 
     #[test]
     fn create() {
-        let keypair = KeyPair::new("super-secret");
+        let keypair = KeyPair::new(Some("super-secret"));
         assert_eq!(keypair.seed().len(), 32);
         keypair.clean();
     }
 
     #[test]
     fn init() {
-        let keypair = KeyPair::new("super-secret");
+        let keypair = KeyPair::new(Some("super-secret"));
         let keypair2 = KeyPair::init(keypair.seed());
         assert_eq!(keypair.pair().public(), keypair2.pair().public());
         keypair.clean();
@@ -81,9 +92,9 @@ mod tests {
     }
     #[test]
     fn backup_restore() {
-        let keypair = KeyPair::new("super-secret");
+        let keypair = KeyPair::new(Some("super-secret"));
         let phrase = keypair.backup().unwrap();
-        let keypair2 = KeyPair::restore(&phrase, "super-secret").unwrap();
+        let keypair2 = KeyPair::restore(&phrase, Some("super-secret")).unwrap();
         assert_eq!(keypair.pair().public(), keypair2.pair().public());
         keypair.clean();
         keypair2.clean();

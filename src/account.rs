@@ -1,18 +1,18 @@
 use core::fmt;
 
-use subxt::sp_core::sr25519::{Pair as Sr25519Pair, Public};
+use subxt::sp_core::sr25519::Pair as Sr25519Pair;
 use subxt::sp_core::Pair;
 use subxt::PairSigner;
 use uuid::Uuid;
 
 use crate::error::Error;
-use crate::keystore::KeyPair;
+use crate::keystore::{KeyPair, PublicFor};
 use crate::runtime::WebbRuntime;
 
 pub struct Account {
     pub uuid: Uuid,
     pub alias: String,
-    pub address: Public,
+    pub address: PublicFor<Sr25519Pair>,
     pub signer: PairSigner<WebbRuntime, Sr25519Pair>,
     pub seed: [u8; 32],
 }
@@ -51,8 +51,8 @@ impl Account {
 }
 
 /// Generates new `KeyPair` and returns new [Account] with Paper backup phrase.
-pub fn generate(alias: String, password: &str) -> (Account, String) {
-    let keys = KeyPair::new(password);
+pub fn generate(alias: String) -> (Account, String) {
+    let keys = KeyPair::new(None);
     let account = Account {
         alias,
         uuid: Uuid::new_v4(),
@@ -67,12 +67,8 @@ pub fn generate(alias: String, password: &str) -> (Account, String) {
 }
 
 /// Restores the [Account] using the Paper backup phrase.
-pub fn restore(
-    alias: String,
-    password: &str,
-    paper_key: &str,
-) -> Result<Account, Error> {
-    let keys = KeyPair::restore(paper_key, password)?;
+pub fn restore(alias: String, paper_key: &str) -> Result<Account, Error> {
+    let keys = KeyPair::restore(paper_key, None)?;
     let account = Account {
         alias,
         uuid: Uuid::new_v4(),

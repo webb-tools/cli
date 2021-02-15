@@ -1,8 +1,10 @@
 use async_trait::async_trait;
 use bip39::{Language, Mnemonic};
 use structopt::StructOpt;
+use subxt::sp_core::crypto::{Ss58AddressFormat, Ss58Codec};
+use subxt::sp_runtime::traits::IdentifyAccount;
 
-use crate::context::Context;
+use crate::context::ExecutionContext;
 
 /// Modify or query the saved accounts.
 #[derive(StructOpt)]
@@ -73,7 +75,7 @@ pub struct ForgetAccount {}
 
 #[async_trait]
 impl super::CommandExec for AccountCommand {
-    async fn exec(&self, context: &mut Context) -> anyhow::Result<()> {
+    async fn exec(&self, context: &mut ExecutionContext) -> anyhow::Result<()> {
         use AccountCommand::*;
         match self {
             List => {
@@ -103,7 +105,7 @@ impl super::CommandExec for AccountCommand {
 
 #[async_trait]
 impl super::CommandExec for ImportAccount {
-    async fn exec(&self, context: &mut Context) -> anyhow::Result<()> {
+    async fn exec(&self, context: &mut ExecutionContext) -> anyhow::Result<()> {
         println!("Importing account with {}", self.alias);
         let password = if let Some(password) = self.password.clone() {
             secrecy::SecretString::new(password)
@@ -118,8 +120,11 @@ impl super::CommandExec for ImportAccount {
         };
         let alias = self.alias.clone();
         let address = context.import_account(alias, password, paper_key)?;
+        let account = address
+            .into_account()
+            .to_ss58check_with_version(Ss58AddressFormat::SubstrateAccount);
         println!("Account Imported:");
-        println!("{}: {}", self.alias, address);
+        println!("{}: {}", self.alias, account);
         println!();
         println!("To set this account as default:");
         println!("    $ webb default {}", self.alias);
@@ -129,7 +134,7 @@ impl super::CommandExec for ImportAccount {
 
 #[async_trait]
 impl super::CommandExec for GenerateAccount {
-    async fn exec(&self, context: &mut Context) -> anyhow::Result<()> {
+    async fn exec(&self, context: &mut ExecutionContext) -> anyhow::Result<()> {
         println!("Generating new account with {}", self.alias);
         let password = if let Some(password) = self.password.clone() {
             secrecy::SecretString::new(password)
@@ -157,7 +162,7 @@ impl super::CommandExec for GenerateAccount {
 
 #[async_trait]
 impl super::CommandExec for ForgetAccount {
-    async fn exec(&self, context: &mut Context) -> anyhow::Result<()> {
+    async fn exec(&self, context: &mut ExecutionContext) -> anyhow::Result<()> {
         todo!("forget account")
     }
 }

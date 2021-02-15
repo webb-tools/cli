@@ -2,7 +2,7 @@ use anyhow::bail;
 use async_trait::async_trait;
 use structopt::StructOpt;
 
-use crate::context::Context;
+use crate::context::ExecutionContext;
 
 /// Set the default account to be used for all operations.
 #[derive(StructOpt)]
@@ -16,7 +16,7 @@ pub struct DefaultCommand {
 
 #[async_trait]
 impl super::CommandExec for DefaultCommand {
-    async fn exec(&self, context: &mut Context) -> anyhow::Result<()> {
+    async fn exec(&self, context: &mut ExecutionContext) -> anyhow::Result<()> {
         let changed = context.set_default_account(&self.alias_or_address)?;
         if changed {
             println!("default: {}", self.alias_or_address);

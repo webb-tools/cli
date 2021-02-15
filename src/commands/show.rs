@@ -2,7 +2,7 @@ use anyhow::bail;
 use async_trait::async_trait;
 use structopt::StructOpt;
 
-use crate::context::Context;
+use crate::context::ExecutionContext;
 
 /// Show the active account (if any)
 /// and other information about the CLI Configrations.
@@ -16,7 +16,7 @@ pub enum ShowCommand {
 
 #[async_trait]
 impl super::CommandExec for ShowCommand {
-    async fn exec(&self, context: &mut Context) -> anyhow::Result<()> {
+    async fn exec(&self, context: &mut ExecutionContext) -> anyhow::Result<()> {
         match self {
             Self::Home => {
                 let home = context.home();

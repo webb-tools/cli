@@ -2,5 +2,5 @@
 
 pub mod account;
 pub mod error;
-mod keystore;
+pub mod keystore;
 pub mod runtime;
