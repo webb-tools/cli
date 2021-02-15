@@ -1,6 +1,5 @@
 use core::fmt;
 
-use anyhow::Context;
 use subxt::sp_core::sr25519::Pair as Sr25519Pair;
 use subxt::sp_core::Pair;
 use subxt::PairSigner;
@@ -61,10 +60,8 @@ pub fn generate(alias: String) -> (Account, String) {
         signer: PairSigner::new(keys.pair().clone()),
         seed: keys.seed(),
     };
-    let paper_key = keys
-        .backup()
-        .context("new generated accound have paper key")
-        .unwrap();
+    let paper_key =
+        keys.backup().expect("new generated accound have paper key");
     keys.clean();
     (account, paper_key)
 }
