@@ -5,6 +5,7 @@ use subxt::sp_core::crypto::{Ss58AddressFormat, Ss58Codec};
 use subxt::sp_runtime::traits::IdentifyAccount;
 
 use crate::context::ExecutionContext;
+use crate::utils;
 
 /// Modify or query the saved accounts.
 #[derive(StructOpt)]
@@ -32,12 +33,6 @@ pub struct ImportAccount {
     /// an easy to remember account name.
     #[structopt(short, long)]
     alias: String,
-    /// a password to secure the account.
-    /// if not provided as an option you will be prompted to enter it.
-    ///
-    /// the password can be provided environment variable.
-    #[structopt(short, long, env = "WEBB_PASSWORD")]
-    password: Option<String>,
     /// the paper key or the mnemonic seed phrase
     /// that got generated with this account.
     ///
@@ -55,12 +50,6 @@ pub struct GenerateAccount {
     /// an easy to remember account name.
     #[structopt(short, long)]
     alias: String,
-    /// a password to secure the account.
-    /// if not provided as an option you will be prompted to enter it.
-    ///
-    /// the password can be provided environment variable.
-    #[structopt(short, long, env = "WEBB_PASSWORD")]
-    password: Option<String>,
 }
 
 /// Removes the account from the local store.
@@ -107,19 +96,17 @@ impl super::CommandExec for AccountCommand {
 impl super::CommandExec for ImportAccount {
     async fn exec(&self, context: &mut ExecutionContext) -> anyhow::Result<()> {
         println!("Importing account with {}", self.alias);
-        let password = if let Some(password) = self.password.clone() {
-            secrecy::SecretString::new(password)
-        } else {
-            crate::utils::ask_for_new_password(8)?
-        };
-
         let paper_key = if let Some(paper_key) = self.mnemonic.clone() {
             Mnemonic::from_phrase(&paper_key, Language::English)?
         } else {
             crate::utils::ask_for_phrase("Enter PaperKey (Mnemonic Seed): ")?
         };
+        if !context.has_secret() {
+            let secret = utils::get_password(context.home(), None)?;
+            context.set_secret(secret);
+        }
         let alias = self.alias.clone();
-        let address = context.import_account(alias, password, paper_key)?;
+        let address = context.import_account(alias, paper_key)?;
         let account = address
             .into_account()
             .to_ss58check_with_version(Ss58AddressFormat::SubstrateAccount);
@@ -136,13 +123,13 @@ impl super::CommandExec for ImportAccount {
 impl super::CommandExec for GenerateAccount {
     async fn exec(&self, context: &mut ExecutionContext) -> anyhow::Result<()> {
         println!("Generating new account with {}", self.alias);
-        let password = if let Some(password) = self.password.clone() {
-            secrecy::SecretString::new(password)
-        } else {
-            crate::utils::ask_for_new_password(8)?
-        };
+
         let alias = self.alias.clone();
-        let (address, seed) = context.generate_account(alias, password)?;
+        if !context.has_secret() {
+            let secret = utils::get_password(context.home(), None)?;
+            context.set_secret(secret);
+        }
+        let (address, seed) = context.generate_account(alias)?;
         println!("Account Generated:");
         println!("{}: {}", self.alias, address);
         println!();

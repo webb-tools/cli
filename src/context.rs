@@ -1,13 +1,15 @@
-use bip39::Mnemonic;
-use std::path::Path;
+use std::path::PathBuf;
 
-use crate::raw::AccountRaw;
 use anyhow::Result;
+use bip39::Mnemonic;
 use directories_next::ProjectDirs;
-use secrecy::{ExposeSecret, SecretString};
+use secrecy::SecretString;
 use subxt::sp_core::sr25519::Pair as Sr25519Pair;
 use webb_cli::account;
 use webb_cli::keystore::PublicFor;
+
+use crate::database::SledDatastore;
+use crate::raw::{AccountRaw, AccountsIds};
 
 /// Commands Execution Context.
 ///
@@ -15,14 +17,14 @@ use webb_cli::keystore::PublicFor;
 pub struct ExecutionContext {
     /// All Saved accounts.
     accounts: Vec<AccountRaw>,
-    /// The Main Database.
-    db: sled::Db,
+    /// The Safe encrypted datastore.
+    db: SledDatastore,
     /// Home of Webb CLI.
     dirs: ProjectDirs,
 }
 
 impl ExecutionContext {
-    pub fn new(db: sled::Db, dirs: ProjectDirs) -> Result<Self> {
+    pub fn new(db: SledDatastore, dirs: ProjectDirs) -> Result<Self> {
         let accounts = Self::load_accounts(&db)?;
         let context = Self { accounts, db, dirs };
         Ok(context)
@@ -33,12 +35,20 @@ impl ExecutionContext {
         self.accounts.iter().find(|raw| raw.is_default)
     }
 
-    pub fn home(&self) -> &Path {
-        self.dirs.data_dir()
+    pub fn home(&self) -> PathBuf {
+        self.dirs.data_dir().to_path_buf()
     }
 
     pub fn accounts(&self) -> &[AccountRaw] {
         self.accounts.as_slice()
+    }
+
+    pub fn has_secret(&self) -> bool {
+        self.db.has_secret()
+    }
+
+    pub fn set_secret(&mut self, secret: SecretString) {
+        self.db.set_secret(secret)
     }
 
     pub fn set_default_account(
@@ -46,7 +56,6 @@ impl ExecutionContext {
         alias_or_address: &str,
     ) -> Result<bool> {
         let mut changed = false;
-        let tree = self.db.open_tree("accounts")?;
         // let's loop over all the accounts
         for acc in &mut self.accounts {
             // first we set any account as not default.
@@ -64,7 +73,7 @@ impl ExecutionContext {
             // save any changes to the database.
             let mut buf = Vec::new();
             prost::Message::encode(acc, &mut buf)?;
-            tree.insert(acc.uuid.as_bytes(), buf)?;
+            self.db.write_plaintext(acc.uuid.as_bytes(), buf)?;
         }
         Ok(changed)
     }
@@ -72,7 +81,6 @@ impl ExecutionContext {
     pub fn generate_account(
         &mut self,
         alias: String,
-        password: SecretString,
     ) -> Result<(PublicFor<Sr25519Pair>, String)> {
         let (account, paper_key) = account::generate(alias);
         let address = account.address;
@@ -81,7 +89,6 @@ impl ExecutionContext {
             alias: account.alias,
             address: address.to_string(),
             uuid: account.uuid.to_string(),
-            seed: account.seed.to_vec(),
             is_default: false,
         };
         // if we don't have any accounts
@@ -90,17 +97,31 @@ impl ExecutionContext {
             raw.is_default = true;
         }
 
-        let tree = self.db.open_tree("accounts")?;
         let mut buf = Vec::new();
         prost::Message::encode(&raw, &mut buf)?;
-        tree.insert(uuid.as_bytes(), buf)?;
+        self.db.write_plaintext(uuid.as_bytes(), buf)?;
+        let mut seed_key = uuid.clone();
+        seed_key.push_str("_seed");
+        self.db.write(seed_key.as_bytes(), &account.seed)?;
+        // save the account to account ids.
+        let maybe_ids = self.db.read_plaintext(b"account_ids")?;
+        let v = match maybe_ids {
+            Some(b) => {
+                let mut v: AccountsIds = prost::Message::decode(b.as_ref())?;
+                v.ids.push(uuid);
+                v
+            }
+            None => AccountsIds { ids: vec![uuid] },
+        };
+        let mut buf = Vec::new();
+        prost::Message::encode(&v, &mut buf)?;
+        self.db.write_plaintext(b"account_ids", buf)?;
         Ok((address, paper_key))
     }
 
     pub fn import_account(
         &mut self,
         alias: String,
-        password: SecretString,
         paper_key: Mnemonic,
     ) -> Result<PublicFor<Sr25519Pair>> {
         let account = account::restore(alias, paper_key.phrase())?;
@@ -110,7 +131,6 @@ impl ExecutionContext {
             alias: account.alias,
             address: address.to_string(),
             uuid: account.uuid.to_string(),
-            seed: account.seed.to_vec(),
             is_default: false,
         };
         // if we don't have any accounts
@@ -119,21 +139,44 @@ impl ExecutionContext {
             raw.is_default = true;
         }
 
-        let tree = self.db.open_tree("accounts")?;
         let mut buf = Vec::new();
         prost::Message::encode(&raw, &mut buf)?;
-        tree.insert(uuid.as_bytes(), buf)?;
+        self.db.write_plaintext(uuid.as_bytes(), buf)?;
+        let mut seed_key = uuid.clone();
+        seed_key.push_str("_seed");
+        self.db.write(seed_key.as_bytes(), &account.seed)?;
+        // save the account to account ids.
+        let maybe_ids = self.db.read_plaintext(b"account_ids")?;
+        let v = match maybe_ids {
+            Some(b) => {
+                let mut v: AccountsIds = prost::Message::decode(b.as_ref())?;
+                v.ids.push(uuid);
+                v
+            }
+            None => AccountsIds { ids: vec![uuid] },
+        };
+        let mut buf = Vec::new();
+        prost::Message::encode(&v, &mut buf)?;
+        self.db.write_plaintext(b"account_ids", buf)?;
         Ok(address)
     }
 
-    fn load_accounts(db: &sled::Db) -> Result<Vec<AccountRaw>> {
-        let tree = db.open_tree("accounts")?;
-        let kvs: sled::Result<Vec<_>> = tree.iter().collect();
-        let mut result = Vec::new();
-        for (_, v) in kvs? {
-            let raw: AccountRaw = prost::Message::decode(&*v)?;
-            result.push(raw);
+    fn load_accounts(db: &SledDatastore) -> Result<Vec<AccountRaw>> {
+        let maybe_ids = db.read_plaintext(b"account_ids")?;
+        if let Some(ids) = maybe_ids {
+            let AccountsIds { ids } = prost::Message::decode(ids.as_ref())?;
+            let mut result = Vec::new();
+            for id in ids {
+                let maybe_metadata = db.read_plaintext(id.as_bytes())?;
+                let account: AccountRaw = match maybe_metadata {
+                    Some(m) => prost::Message::decode(m.as_ref())?,
+                    None => continue,
+                };
+                result.push(account);
+            }
+            Ok(result)
+        } else {
+            Ok(Vec::new())
         }
-        Ok(result)
     }
 }

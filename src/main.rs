@@ -1,5 +1,9 @@
+use std::fs;
+use std::path::PathBuf;
+
 use anyhow::Context;
 use directories_next::ProjectDirs;
+use secrecy::SecretString;
 use structopt::StructOpt;
 
 mod commands;
@@ -10,6 +14,9 @@ mod utils;
 
 use commands::{CommandExec, SubCommand};
 use context::ExecutionContext;
+use database::SledDatastore;
+
+const PACKAGE_ID: [&str; 3] = ["tools", "webb", "webb-cli"];
 
 /// 🕸️  The Webb Command-line tools 🧰
 ///
@@ -35,8 +42,36 @@ struct Opts {
     ///
     /// like delete an account, read the password from passed options
     /// and many other unsafe operations.
-    #[structopt(long = "unsafe")]
+    #[structopt(global = true, long = "unsafe")]
     unsafe_flag: bool,
+
+    /// Use interactive shell for entering the password used by the secret datastore.
+    #[structopt(
+        global = true,
+        long = "password-interactive",
+        conflicts_with_all = &["password", "password-filename"]
+    )]
+    pub password_interactive: bool,
+
+    /// Password used by the secret datastore.
+    #[structopt(
+        global = true,
+        long = "password",
+        short,
+        parse(try_from_str = utils::secret_string_from_str),
+        conflicts_with_all = &["password-interactive", "password-filename"]
+    )]
+    pub password: Option<SecretString>,
+
+    /// File that contains the password used by secret datastore.
+    #[structopt(
+        global = true,
+        long = "password-filename",
+        value_name = "PATH",
+        parse(from_os_str),
+        conflicts_with_all = &["password-interactive", "password"]
+    )]
+    pub password_filename: Option<PathBuf>,
     #[structopt(subcommand)]
     sub: SubCommand,
 }
@@ -57,20 +92,55 @@ async fn main(args: Opts) -> anyhow::Result<()> {
         .filter_module("webb", log_level)
         .init();
 
-    let dirs = ProjectDirs::from("tools", "webb", "webb-cli")
-        .context("getting project data")?;
+    let dirs = ProjectDirs::from(
+        crate::PACKAGE_ID[0],
+        crate::PACKAGE_ID[1],
+        crate::PACKAGE_ID[2],
+    )
+    .context("getting project data")?;
 
-    let db_path = dirs.data_dir().join("db");
-    let db = sled::open(db_path).context("open database")?;
+    let db = if let Some(secret) = password(&args)? {
+        SledDatastore::with_secret(utils::get_password(
+            dirs.data_dir().to_path_buf(),
+            Some(secret),
+        )?)
+    } else {
+        SledDatastore::new()
+    }
+    .context("failed to open the secret datastore!")?;
 
-    let mut context = ExecutionContext::new(db.clone(), dirs)
-        .context("create execution context")?;
+    let mut context = ExecutionContext::new(db, dirs)
+        .context("create execution context for other commands")?;
 
     match args.sub {
         SubCommand::Show(cmd) => cmd.exec(&mut context).await?,
         SubCommand::Default(cmd) => cmd.exec(&mut context).await?,
         SubCommand::Account(cmd) => cmd.exec(&mut context).await?,
     };
-    db.flush()?;
+
     Ok(())
+}
+
+fn password(args: &Opts) -> anyhow::Result<Option<SecretString>> {
+    if args.password_interactive {
+        utils::ask_for_password("Password: ", 6).map(Option::Some)
+    } else if let Some(ref path) = args.password_filename {
+        let password =
+            fs::read_to_string(path).context("reading password file")?;
+        Ok(Some(SecretString::new(password)))
+    } else if args.password.is_some() && args.unsafe_flag {
+        // TODO(shekohex): emit a warning here about unsafe flag.
+        Ok(args.password.clone())
+    } else if args.password.is_some() && !args.unsafe_flag {
+        let msg = r#"Passing passwords in the options is not recommened.
+try using password file or input the password interactively (run `webb --help`).
+and also search on `how to delete a command from shell history` to delete this command from
+your shell history.
+
+if you going to do this **anyway**, re-run the same command with `--unsafe` flag.
+            "#;
+        anyhow::bail!(msg);
+    } else {
+        Ok(None)
+    }
 }
