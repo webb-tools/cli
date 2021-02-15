@@ -70,21 +70,22 @@ impl SledDatastore {
         let secret =
             self.secret.clone().expect("password must be provided here");
         let mut enckey_bytes = utils::sha256(secret.expose_secret().as_bytes());
-        let mut buffer = Vec::new();
+        let mut buffer = Vec::new(); // a buffer to hold the nonce + encrypted bytes.
         let mut nonce_bytes = [0u8; 24];
         let mut rng = rand::thread_rng();
         rng.fill_bytes(&mut nonce_bytes);
         let nonce = XNonce::from_slice(&nonce_bytes);
-        buffer.extend_from_slice(&nonce_bytes);
-        buffer.extend(value.into().to_vec());
         let enckey = Key::from_slice(&enckey_bytes);
         let aead = XChaCha20Poly1305::new(enckey);
-        let encrypted = aead
-            .encrypt(&nonce, buffer.as_ref())
+
+        let mut encrypted = aead
+            .encrypt(&nonce, value.into().as_ref())
             .expect("encryption failure");
-        enckey_bytes.zeroize();
+        buffer.extend_from_slice(&nonce_bytes); // add nonce. [0..24]
+        buffer.append(&mut encrypted); // add encrypted bytes [24..]
+        enckey_bytes.zeroize(); // clear the key.
         self.sled
-            .insert(key.into(), encrypted)
+            .insert(key.into(), buffer)
             .map_err(anyhow::Error::from)
     }
 
