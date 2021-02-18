@@ -15,23 +15,23 @@ use crate::runtime::{Commitment, Data};
 
 const NOTE_PREFIX: &str = "webb.mix";
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TokenSymbol {
     Edg,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum NoteVersion {
     V1,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Note {
-    prefix: String,
-    version: NoteVersion,
-    token_symbol: TokenSymbol,
-    mixer_id: u8,
-    block_number: Option<u32>,
+    pub prefix: String,
+    pub version: NoteVersion,
+    pub token_symbol: TokenSymbol,
+    pub mixer_id: u32,
+    pub block_number: Option<u32>,
     r: Data,
     nullifier: Data,
 }
@@ -153,7 +153,7 @@ impl FromStr for Note {
 }
 
 pub struct Mixer {
-    id: u8,
+    id: u32,
     tree: FixedDepositTree,
 }
 
@@ -162,7 +162,7 @@ impl Default for Mixer {
 }
 
 impl Mixer {
-    pub fn new(id: u8) -> Self {
+    pub fn new(id: u32) -> Self {
         Self {
             id,
             tree: FixedDepositTreeBuilder::new().depth(32).build(),

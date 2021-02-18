@@ -4271,6 +4271,7 @@ dependencies = [
  "substrate-subxt",
  "thiserror",
  "tiny-bip39 0.8.0",
+ "url",
  "uuid",
  "zeroize 1.2.0",
 ]

@@ -5,8 +5,11 @@ use bip39::Mnemonic;
 use directories_next::ProjectDirs;
 use secrecy::SecretString;
 use subxt::sp_core::sr25519::Pair as Sr25519Pair;
+use subxt::Client;
 use webb_cli::account;
 use webb_cli::keystore::PublicFor;
+use webb_cli::mixer::{Mixer, Note, TokenSymbol};
+use webb_cli::runtime::WebbRuntime;
 
 use crate::database::SledDatastore;
 use crate::raw::{AccountRaw, AccountsIds, NoteRaw, NotesIds};
@@ -23,10 +26,16 @@ pub struct ExecutionContext {
     db: SledDatastore,
     /// Home of Webb CLI.
     dirs: ProjectDirs,
+    /// RPC Endpoint.
+    rpc_url: url::Url,
 }
 
 impl ExecutionContext {
-    pub fn new(db: SledDatastore, dirs: ProjectDirs) -> Result<Self> {
+    pub fn new(
+        db: SledDatastore,
+        dirs: ProjectDirs,
+        rpc_url: url::Url,
+    ) -> Result<Self> {
         let accounts = Self::load_accounts(&db)?;
         let notes = Self::load_notes(&db)?;
         let context = Self {
@@ -34,6 +43,7 @@ impl ExecutionContext {
             notes,
             db,
             dirs,
+            rpc_url,
         };
         Ok(context)
     }
@@ -48,6 +58,14 @@ impl ExecutionContext {
     pub fn accounts(&self) -> &[AccountRaw] { self.accounts.as_slice() }
 
     pub fn notes(&self) -> &[NoteRaw] { self.notes.as_slice() }
+
+    pub async fn client(&self) -> Result<Client<WebbRuntime>> {
+        let client = subxt::ClientBuilder::new()
+            .set_url(self.rpc_url.as_str())
+            .build()
+            .await?;
+        Ok(client)
+    }
 
     pub fn has_secret(&self) -> bool { self.db.has_secret() }
 
@@ -163,6 +181,51 @@ impl ExecutionContext {
         prost::Message::encode(&v, &mut buf)?;
         self.db.write_plaintext(b"account_ids", buf)?;
         Ok(address)
+    }
+
+    pub fn generate_note(
+        &mut self,
+        alias: String,
+        mixer_id: u32,
+        token_symbol: TokenSymbol,
+    ) -> Result<()> {
+        let mut mixer = Mixer::new(mixer_id);
+        let note = mixer.generate_note(token_symbol);
+        self.import_note(alias, note)?;
+        Ok(())
+    }
+
+    pub fn import_note(&mut self, alias: String, note: Note) -> Result<u32> {
+        let uuid = uuid::Uuid::new_v4();
+        let raw = NoteRaw {
+            alias,
+            mixer_id: note.mixer_id,
+            token_symbol: note.token_symbol.to_string(),
+            uuid: uuid.to_string(),
+            used: false,
+        };
+        let mut buf = Vec::new();
+        prost::Message::encode(&raw, &mut buf)?;
+        self.db.write_plaintext(uuid.to_string().as_bytes(), buf)?;
+        let mut secret_key = uuid.to_string();
+        secret_key.push_str("_secret");
+        let note_secret = note.to_string().into_bytes();
+        self.db.write(secret_key.as_bytes(), note_secret)?;
+        let maybe_ids = self.db.read_plaintext(b"notes_ids")?;
+        let v = match maybe_ids {
+            Some(b) => {
+                let mut v: NotesIds = prost::Message::decode(b.as_ref())?;
+                v.ids.push(uuid.to_string());
+                v
+            },
+            None => NotesIds {
+                ids: vec![uuid.to_string()],
+            },
+        };
+        let mut buf = Vec::new();
+        prost::Message::encode(&v, &mut buf)?;
+        self.db.write_plaintext(b"notes_ids", buf)?;
+        Ok(raw.mixer_id)
     }
 
     fn load_accounts(db: &SledDatastore) -> Result<Vec<AccountRaw>> {

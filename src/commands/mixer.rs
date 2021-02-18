@@ -1,7 +1,14 @@
 use std::io::Write;
+use std::str::FromStr;
+use std::time::Duration;
 
 use async_trait::async_trait;
+use console::style;
+use indicatif::{ProgressBar, ProgressStyle};
+use secrecy::SecretString;
 use structopt::StructOpt;
+use webb_cli::mixer::{Note, TokenSymbol};
+use webb_cli::runtime::{MixerGroupIdsStore, WebbRuntime};
 
 use crate::context::ExecutionContext;
 
@@ -11,11 +18,11 @@ pub enum MixerCommand {
     /// List all of your saved Notes.
     List,
     /// Imports a previously generated Note.
-    Import(ImportNote),
+    ImportNote(ImportNote),
     /// Generates a new Note and save it.
-    Generate(GenerateNote),
+    GenerateNote(GenerateNote),
     /// Remove/Forget a Note.
-    Forget(ForgetNote),
+    ForgetNote(ForgetNote),
     /// Deposit crypto assets to the mixer.
     Deposit(DepositAsset),
     /// Withdraw a previously deposited asset from the mixer.
@@ -45,9 +52,9 @@ impl super::CommandExec for MixerCommand {
                 }
                 Ok(())
             },
-            MixerCommand::Import(cmd) => cmd.exec(context).await,
-            MixerCommand::Generate(cmd) => cmd.exec(context).await,
-            MixerCommand::Forget(cmd) => cmd.exec(context).await,
+            MixerCommand::ImportNote(cmd) => cmd.exec(context).await,
+            MixerCommand::GenerateNote(cmd) => cmd.exec(context).await,
+            MixerCommand::ForgetNote(cmd) => cmd.exec(context).await,
             MixerCommand::Deposit(cmd) => cmd.exec(context).await,
             MixerCommand::Withdraw(cmd) => cmd.exec(context).await,
         }
@@ -58,12 +65,54 @@ impl super::CommandExec for MixerCommand {
 ///
 /// The Note could be generated previously from the Webb UI.
 #[derive(StructOpt)]
-pub struct ImportNote {}
+pub struct ImportNote {
+    /// an easy to remember the Note.
+    #[structopt(short, long)]
+    alias: Option<String>,
+    /// Note string.
+    #[structopt(env = "WEBB_NOTE")]
+    note: Option<String>,
+}
 
 #[async_trait]
 impl super::CommandExec for ImportNote {
     async fn exec(self, context: &mut ExecutionContext) -> anyhow::Result<()> {
-        todo!()
+        let mut term = console::Term::stdout();
+        let theme = dialoguer::theme::ColorfulTheme::default();
+        let alias = if let Some(val) = self.alias {
+            val
+        } else {
+            dialoguer::Input::with_theme(&theme)
+                .with_prompt("Note Alias")
+                .interact_on(&term)?
+        };
+        let note = if let Some(val) = self.note {
+            Note::from_str(&val)?
+        } else {
+            loop {
+                let value: String = dialoguer::Input::with_theme(&theme)
+                    .with_prompt("Note")
+                    .interact_on(&term)?;
+                match Note::from_str(&value) {
+                    Ok(v) => break v,
+                    Err(e) => {
+                        writeln!(term, "{}", style(e).red())?;
+                        continue;
+                    },
+                };
+            }
+        };
+        let mixer_group_id = context.import_note(alias.clone(), note)?;
+        writeln!(
+            term,
+            "Note Imported with alias {} for #{} Mixer Group",
+            style(alias).green(),
+            mixer_group_id
+        )?;
+        writeln!(term)?;
+        writeln!(term, "Next, Do a dopist using this note.")?;
+        writeln!(term, "    $ webb mixer deposit")?;
+        Ok(())
     }
 }
 
@@ -83,13 +132,92 @@ pub struct GenerateNote {
     ///
     /// leave empty to prompt with the available mixer groups.
     #[structopt(short, long)]
-    group: Option<u8>,
+    group: Option<u32>,
 }
 
 #[async_trait]
 impl super::CommandExec for GenerateNote {
     async fn exec(self, context: &mut ExecutionContext) -> anyhow::Result<()> {
-        todo!()
+        type MixerGroupIds = MixerGroupIdsStore<WebbRuntime>;
+        let mut term = console::Term::stdout();
+        let theme = dialoguer::theme::ColorfulTheme::default();
+        let alias = if let Some(val) = self.alias {
+            val
+        } else {
+            dialoguer::Input::with_theme(&theme)
+                .with_prompt("Note Alias")
+                .interact_on(&term)?
+        };
+        let pb = ProgressBar::new_spinner();
+        pb.enable_steady_tick(60);
+        let pb_style = ProgressStyle::default_spinner()
+            .tick_chars("⠁⠂⠄⡀⢀⠠⠐⠈ ")
+            .template("{prefix:.bold.dim} {spinner} {wide_msg}");
+        pb.set_style(pb_style.clone());
+        pb.set_prefix("[1/3]");
+        pb.set_message("Connecting ..");
+        async_std::task::sleep(Duration::from_secs(2)).await;
+        let client = context.client().await?;
+        pb.set_prefix("[2/3]");
+        pb.set_message("Getting Mixer Groups ..");
+        let mixer_group_ids = client
+            .fetch_or_default(&MixerGroupIds::default(), None)
+            .await?;
+        async_std::task::sleep(Duration::from_secs(3)).await;
+        pb.finish_and_clear();
+        let mixer_group_id = if let Some(val) = self.group {
+            if mixer_group_ids.contains(&val) {
+                val
+            } else {
+                writeln!(term, "Available groups: {:?}", mixer_group_ids)?;
+                anyhow::bail!("Invalid Mixer group!");
+            }
+        } else {
+            let items: Vec<_> = mixer_group_ids
+                .iter()
+                .map(|i| {
+                    format!(
+                        "Group #{} with 1,000{} EDG",
+                        i,
+                        "0".repeat(*i as usize)
+                    )
+                })
+                .collect();
+            let i = dialoguer::Select::with_theme(&theme)
+                .with_prompt("Select Mixer Group")
+                .items(&items)
+                .interact_on(&term)?;
+            mixer_group_ids[i]
+        };
+        if !context.has_secret() {
+            let password = dialoguer::Password::with_theme(&theme)
+                .with_prompt("Password")
+                .interact_on(&term)?;
+            let secret = SecretString::new(password);
+            context.set_secret(secret);
+        }
+        let pb = ProgressBar::new_spinner();
+        pb.enable_steady_tick(60);
+        pb.set_style(pb_style);
+        pb.set_prefix("[3/3]");
+        pb.set_message("Generating Note..");
+        context.generate_note(
+            alias.clone(),
+            mixer_group_id,
+            TokenSymbol::Edg,
+        )?;
+        pb.finish_with_message("Done!");
+        pb.finish_and_clear();
+        writeln!(
+            term,
+            "Note Generated with alias {} for #{} Mixer Group",
+            style(alias).green(),
+            mixer_group_id
+        )?;
+        writeln!(term)?;
+        writeln!(term, "Next, Do a dopist using this note.")?;
+        writeln!(term, "    $ webb mixer deposit")?;
+        Ok(())
     }
 }
 

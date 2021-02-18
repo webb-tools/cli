@@ -44,8 +44,6 @@ impl SledDatastore {
     ) -> anyhow::Result<Option<sled::IVec>> {
         let secret =
             self.secret.clone().expect("password must be provided here");
-        // hash the password to get a 32 bytes for the secret key.
-        // I guess this fine?
         let mut deckey_bytes = utils::hash_password(secret)?;
         let encrypted = self.sled.get(key.into())?;
         if let Some(data) = encrypted {
@@ -87,9 +85,12 @@ impl SledDatastore {
         buffer.extend_from_slice(&nonce_bytes); // add nonce. [0..24]
         buffer.append(&mut encrypted); // add encrypted bytes [24..]
         enckey_bytes.zeroize(); // clear the key.
-        self.sled
+        let val = self
+            .sled
             .insert(key.into(), buffer)
-            .map_err(anyhow::Error::from)
+            .map_err(anyhow::Error::from)?;
+        self.sled.flush()?;
+        Ok(val)
     }
 
     pub fn read_plaintext(
@@ -104,9 +105,12 @@ impl SledDatastore {
         key: impl Into<sled::IVec>,
         value: impl Into<sled::IVec>,
     ) -> anyhow::Result<Option<sled::IVec>> {
-        self.sled
+        let val = self
+            .sled
             .insert(key.into(), value.into())
-            .map_err(anyhow::Error::from)
+            .map_err(anyhow::Error::from)?;
+        self.sled.flush()?;
+        Ok(val)
     }
 
     pub fn has_secret(&self) -> bool { self.secret.is_some() }

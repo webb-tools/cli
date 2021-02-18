@@ -1,5 +1,7 @@
 #![allow(clippy::too_many_arguments)]
 
+use std::marker::PhantomData;
+
 use codec::{Decode, Encode};
 use frame_support::Parameter;
 use subxt::balances::*;
@@ -127,6 +129,20 @@ pub struct MixerGroupsStore<T: Mixer> {
     id: T::GroupId,
 }
 
+#[derive(Clone, Debug, Eq, Encode, PartialEq, subxt::Store)]
+pub struct MixerGroupIdsStore<T: Mixer> {
+    #[store(returns = Vec<T::GroupId>)]
+    __unused: PhantomData<T>,
+}
+
+impl<T: Mixer> Default for MixerGroupIdsStore<T> {
+    fn default() -> Self {
+        Self {
+            __unused: PhantomData,
+        }
+    }
+}
+
 // Events ..
 
 #[derive(Clone, Debug, Decode, Eq, PartialEq, subxt::Event)]
@@ -177,6 +193,7 @@ mod tests {
     use subxt::PairSigner;
 
     type MixerGroups = MixerGroupsStore<WebbRuntime>;
+    type MixerGroupIds = MixerGroupIdsStore<WebbRuntime>;
 
     async fn get_client() -> subxt::Client<WebbRuntime> {
         subxt::ClientBuilder::new()
@@ -196,6 +213,12 @@ mod tests {
         }
 
         assert!(!groups.is_empty());
+
+        let ids = client
+            .fetch_or_default::<MixerGroupIds>(&MixerGroupIds::default(), None)
+            .await
+            .unwrap();
+        assert!(!ids.is_empty());
     }
 
     #[async_std::test]

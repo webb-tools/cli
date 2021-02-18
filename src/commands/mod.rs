@@ -57,3 +57,16 @@ pub struct PasswordOpts {
     )]
     pub password_filename: Option<PathBuf>,
 }
+
+#[derive(StructOpt, Clone, Debug)]
+pub struct NodeOpts {
+    /// Set the Node Url where we will connect to.
+    #[structopt(
+        global = true,
+        long = "node-url",
+        default_value = "ws://127.0.0.1:9944",
+        env = "WEBB_NODE_URL",
+        parse(try_from_str = url::Url::parse)
+    )]
+    pub url: url::Url,
+}
