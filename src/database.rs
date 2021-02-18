@@ -1,8 +1,9 @@
 use anyhow::Context;
-use chacha::{aead::Aead, aead::NewAead, Key, XChaCha20Poly1305, XNonce};
+use chacha::aead::{Aead, NewAead};
+use chacha::{Key, XChaCha20Poly1305, XNonce};
 use directories_next::ProjectDirs;
 use rand::RngCore;
-use secrecy::{ExposeSecret, SecretString, Zeroize};
+use secrecy::{SecretString, Zeroize};
 
 use crate::utils;
 
@@ -45,12 +46,13 @@ impl SledDatastore {
             self.secret.clone().expect("password must be provided here");
         // hash the password to get a 32 bytes for the secret key.
         // I guess this fine?
-        let mut deckey_bytes = utils::sha256(secret.expose_secret().as_bytes());
+        let mut deckey_bytes = utils::hash_password(secret)?;
         let encrypted = self.sled.get(key.into())?;
         if let Some(data) = encrypted {
             let nonce_bytes = &data[0..24]; // 24 bytes are the nonce.
             let conents = &data[24..]; // the rest is the encrypted data.
-            let deckey = Key::from_slice(&deckey_bytes);
+            let secret = &deckey_bytes.as_bytes()[64..96];
+            let deckey = Key::from_slice(secret);
             let nonce = XNonce::from_slice(nonce_bytes);
             let aead = XChaCha20Poly1305::new(deckey);
             let plaintext =
@@ -69,13 +71,14 @@ impl SledDatastore {
     ) -> anyhow::Result<Option<sled::IVec>> {
         let secret =
             self.secret.clone().expect("password must be provided here");
-        let mut enckey_bytes = utils::sha256(secret.expose_secret().as_bytes());
+        let mut enckey_bytes = utils::hash_password(secret)?;
         let mut buffer = Vec::new(); // a buffer to hold the nonce + encrypted bytes.
         let mut nonce_bytes = [0u8; 24];
         let mut rng = rand::thread_rng();
         rng.fill_bytes(&mut nonce_bytes);
         let nonce = XNonce::from_slice(&nonce_bytes);
-        let enckey = Key::from_slice(&enckey_bytes);
+        let secret = &enckey_bytes.as_bytes()[64..96];
+        let enckey = Key::from_slice(secret);
         let aead = XChaCha20Poly1305::new(enckey);
 
         let mut encrypted = aead
@@ -106,9 +109,7 @@ impl SledDatastore {
             .map_err(anyhow::Error::from)
     }
 
-    pub fn has_secret(&self) -> bool {
-        self.secret.is_some()
-    }
+    pub fn has_secret(&self) -> bool { self.secret.is_some() }
 
     pub fn set_secret(&mut self, secret: SecretString) {
         self.secret = Some(secret);

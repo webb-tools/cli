@@ -1,16 +1,17 @@
-use std::{convert::TryInto, fmt, str::FromStr};
+use std::convert::TryInto;
+use std::fmt;
+use std::str::FromStr;
 
-use bulletproofs::{r1cs::Prover, BulletproofGens, PedersenGens};
+use bulletproofs::r1cs::Prover;
+use bulletproofs::{BulletproofGens, PedersenGens};
 use curve25519_dalek::scalar::Scalar;
 use curve25519_gadgets::fixed_deposit_tree::builder::{
     FixedDepositTree, FixedDepositTreeBuilder,
 };
 use merlin::Transcript;
 
-use crate::{
-    error::Error,
-    runtime::{Commitment, Data},
-};
+use crate::error::Error;
+use crate::runtime::{Commitment, Data};
 
 const NOTE_PREFIX: &str = "webb.mix";
 

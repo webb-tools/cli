@@ -38,9 +38,7 @@ impl KeyPair {
         })
     }
 
-    pub fn backup(&self) -> Option<String> {
-        self.phrase.clone()
-    }
+    pub fn backup(&self) -> Option<String> { self.phrase.clone() }
 
     pub fn clean(mut self) {
         self.seed.zeroize();
@@ -48,17 +46,11 @@ impl KeyPair {
         drop(self.pair);
     }
 
-    pub fn public(&self) -> PublicFor<Sr25519Pair> {
-        self.pair.public()
-    }
+    pub fn public(&self) -> PublicFor<Sr25519Pair> { self.pair.public() }
 
-    pub fn pair(&self) -> &Sr25519Pair {
-        &self.pair
-    }
+    pub fn pair(&self) -> &Sr25519Pair { &self.pair }
 
-    pub fn seed(&self) -> SeedFor<Sr25519Pair> {
-        self.seed
-    }
+    pub fn seed(&self) -> SeedFor<Sr25519Pair> { self.seed }
 
     pub fn init(seed: [u8; 32]) -> Self {
         let pair = Sr25519Pair::from_seed(&seed);

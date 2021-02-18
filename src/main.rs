@@ -1,5 +1,4 @@
 use std::fs;
-use std::path::PathBuf;
 
 use anyhow::Context;
 use directories_next::ProjectDirs;
@@ -12,7 +11,7 @@ mod database;
 mod raw;
 mod utils;
 
-use commands::{CommandExec, SubCommand};
+use commands::{CommandExec, PasswordOpts, SubCommand};
 use context::ExecutionContext;
 use database::SledDatastore;
 
@@ -31,7 +30,6 @@ const PACKAGE_ID: [&str; 3] = ["tools", "webb", "webb-cli"];
 /// To set an account as the default one for any operation try:
 ///
 ///     $ webb default <ACCOUNT_ALIAS_OR_ADDRESS>
-///
 #[derive(StructOpt)]
 #[structopt(name = "Webb CLI")]
 struct Opts {
@@ -44,34 +42,10 @@ struct Opts {
     /// and many other unsafe operations.
     #[structopt(global = true, long = "unsafe")]
     unsafe_flag: bool,
-
-    /// Use interactive shell for entering the password used by the secret datastore.
-    #[structopt(
-        global = true,
-        long = "password-interactive",
-        conflicts_with_all = &["password", "password-filename"]
-    )]
-    pub password_interactive: bool,
-
-    /// Password used by the secret datastore.
-    #[structopt(
-        global = true,
-        long = "password",
-        short,
-        parse(try_from_str = utils::secret_string_from_str),
-        conflicts_with_all = &["password-interactive", "password-filename"]
-    )]
-    pub password: Option<SecretString>,
-
-    /// File that contains the password used by secret datastore.
-    #[structopt(
-        global = true,
-        long = "password-filename",
-        value_name = "PATH",
-        parse(from_os_str),
-        conflicts_with_all = &["password-interactive", "password"]
-    )]
-    pub password_filename: Option<PathBuf>,
+    /// Password Options.
+    #[structopt(flatten)]
+    password: PasswordOpts,
+    /// Sub-Commands.
     #[structopt(subcommand)]
     sub: SubCommand,
 }
@@ -100,10 +74,7 @@ async fn main(args: Opts) -> anyhow::Result<()> {
     .context("getting project data")?;
 
     let db = if let Some(secret) = password(&args)? {
-        SledDatastore::with_secret(utils::get_password(
-            dirs.data_dir().to_path_buf(),
-            Some(secret),
-        )?)
+        SledDatastore::with_secret(secret)
     } else {
         SledDatastore::new()
     }
@@ -111,35 +82,32 @@ async fn main(args: Opts) -> anyhow::Result<()> {
 
     let mut context = ExecutionContext::new(db, dirs)
         .context("create execution context for other commands")?;
-
     match args.sub {
         SubCommand::Show(cmd) => cmd.exec(&mut context).await?,
         SubCommand::Default(cmd) => cmd.exec(&mut context).await?,
         SubCommand::Account(cmd) => cmd.exec(&mut context).await?,
+        SubCommand::Mixer(cmd) => cmd.exec(&mut context).await?,
     };
 
     Ok(())
 }
 
 fn password(args: &Opts) -> anyhow::Result<Option<SecretString>> {
-    if args.password_interactive {
-        utils::ask_for_password("Password: ", 6).map(Option::Some)
-    } else if let Some(ref path) = args.password_filename {
-        let password =
-            fs::read_to_string(path).context("reading password file")?;
+    let password_opts = &args.password;
+    if password_opts.password_interactive {
+        let password = dialoguer::Password::new()
+            .with_prompt("Password")
+            .interact()?;
         Ok(Some(SecretString::new(password)))
-    } else if args.password.is_some() && args.unsafe_flag {
+    } else if let Some(ref path) = password_opts.password_filename {
+        let password = fs::read_to_string(path)
+            .context("trying to read the password from the file")?;
+        Ok(Some(SecretString::new(password)))
+    } else if password_opts.password.is_some() && args.unsafe_flag {
         // TODO(shekohex): emit a warning here about unsafe flag.
-        Ok(args.password.clone())
-    } else if args.password.is_some() && !args.unsafe_flag {
-        let msg = r#"Passing passwords in the options is not recommened.
-try using password file or input the password interactively (run `webb --help`).
-and also search on `how to delete a command from shell history` to delete this command from
-your shell history.
-
-if you going to do this **anyway**, re-run the same command with `--unsafe` flag.
-            "#;
-        anyhow::bail!(msg);
+        Ok(password_opts.password.clone())
+    } else if password_opts.password.is_some() && !args.unsafe_flag {
+        anyhow::bail!(include_str!("messages/password_option.txt"));
     } else {
         Ok(None)
     }

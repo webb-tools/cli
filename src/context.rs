@@ -9,7 +9,7 @@ use webb_cli::account;
 use webb_cli::keystore::PublicFor;
 
 use crate::database::SledDatastore;
-use crate::raw::{AccountRaw, AccountsIds};
+use crate::raw::{AccountRaw, AccountsIds, NoteRaw, NotesIds};
 
 /// Commands Execution Context.
 ///
@@ -17,6 +17,8 @@ use crate::raw::{AccountRaw, AccountsIds};
 pub struct ExecutionContext {
     /// All Saved accounts.
     accounts: Vec<AccountRaw>,
+    /// All Saved notes.
+    notes: Vec<NoteRaw>,
     /// The Safe encrypted datastore.
     db: SledDatastore,
     /// Home of Webb CLI.
@@ -26,7 +28,13 @@ pub struct ExecutionContext {
 impl ExecutionContext {
     pub fn new(db: SledDatastore, dirs: ProjectDirs) -> Result<Self> {
         let accounts = Self::load_accounts(&db)?;
-        let context = Self { accounts, db, dirs };
+        let notes = Self::load_notes(&db)?;
+        let context = Self {
+            accounts,
+            notes,
+            db,
+            dirs,
+        };
         Ok(context)
     }
 
@@ -35,17 +43,13 @@ impl ExecutionContext {
         self.accounts.iter().find(|raw| raw.is_default)
     }
 
-    pub fn home(&self) -> PathBuf {
-        self.dirs.data_dir().to_path_buf()
-    }
+    pub fn home(&self) -> PathBuf { self.dirs.data_dir().to_path_buf() }
 
-    pub fn accounts(&self) -> &[AccountRaw] {
-        self.accounts.as_slice()
-    }
+    pub fn accounts(&self) -> &[AccountRaw] { self.accounts.as_slice() }
 
-    pub fn has_secret(&self) -> bool {
-        self.db.has_secret()
-    }
+    pub fn notes(&self) -> &[NoteRaw] { self.notes.as_slice() }
+
+    pub fn has_secret(&self) -> bool { self.db.has_secret() }
 
     pub fn set_secret(&mut self, secret: SecretString) {
         self.db.set_secret(secret)
@@ -110,7 +114,7 @@ impl ExecutionContext {
                 let mut v: AccountsIds = prost::Message::decode(b.as_ref())?;
                 v.ids.push(uuid);
                 v
-            }
+            },
             None => AccountsIds { ids: vec![uuid] },
         };
         let mut buf = Vec::new();
@@ -152,7 +156,7 @@ impl ExecutionContext {
                 let mut v: AccountsIds = prost::Message::decode(b.as_ref())?;
                 v.ids.push(uuid);
                 v
-            }
+            },
             None => AccountsIds { ids: vec![uuid] },
         };
         let mut buf = Vec::new();
@@ -173,6 +177,25 @@ impl ExecutionContext {
                     None => continue,
                 };
                 result.push(account);
+            }
+            Ok(result)
+        } else {
+            Ok(Vec::new())
+        }
+    }
+
+    fn load_notes(db: &SledDatastore) -> Result<Vec<NoteRaw>> {
+        let maybe_ids = db.read_plaintext(b"notes_ids")?;
+        if let Some(ids) = maybe_ids {
+            let NotesIds { ids } = prost::Message::decode(ids.as_ref())?;
+            let mut result = Vec::new();
+            for id in ids {
+                let maybe_metadata = db.read_plaintext(id.as_bytes())?;
+                let note: NoteRaw = match maybe_metadata {
+                    Some(m) => prost::Message::decode(m.as_ref())?,
+                    None => continue,
+                };
+                result.push(note);
             }
             Ok(result)
         } else {

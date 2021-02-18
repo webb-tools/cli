@@ -546,7 +546,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ed8738f14471a99f0e316c327e68fc82a3611cc2895fcb604b89eedaf8f39d95"
 dependencies = [
  "cipher",
- "zeroize",
+ "zeroize 1.2.0",
 ]
 
 [[package]]
@@ -559,7 +559,7 @@ dependencies = [
  "chacha20",
  "cipher",
  "poly1305",
- "zeroize",
+ "zeroize 1.2.0",
 ]
 
 [[package]]
@@ -624,6 +624,37 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "30ed07550be01594c6026cff2a1d7fe9c8f683caa798e12b68694ac9e88286a3"
 dependencies = [
  "cache-padded",
+]
+
+[[package]]
+name = "console"
+version = "0.13.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a50aab2529019abfabfa93f1e6c41ef392f91fbf179b347a7e96abb524884a08"
+dependencies = [
+ "encode_unicode",
+ "lazy_static",
+ "libc",
+ "regex",
+ "terminal_size",
+ "unicode-width",
+ "winapi 0.3.9",
+ "winapi-util",
+]
+
+[[package]]
+name = "console"
+version = "0.14.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7cc80946b3480f421c2f17ed1cb841753a371c7c5104f51d507e13f532c856aa"
+dependencies = [
+ "encode_unicode",
+ "lazy_static",
+ "libc",
+ "regex",
+ "terminal_size",
+ "unicode-width",
+ "winapi 0.3.9",
 ]
 
 [[package]]
@@ -735,7 +766,7 @@ dependencies = [
  "digest 0.8.1",
  "rand_core 0.5.1",
  "subtle 2.4.0",
- "zeroize",
+ "zeroize 1.2.0",
 ]
 
 [[package]]
@@ -748,7 +779,7 @@ dependencies = [
  "digest 0.9.0",
  "rand_core 0.5.1",
  "subtle 2.4.0",
- "zeroize",
+ "zeroize 1.2.0",
 ]
 
 [[package]]
@@ -775,6 +806,18 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn",
+]
+
+[[package]]
+name = "dialoguer"
+version = "0.7.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "70f807b2943dc90f9747497d9d65d7e92472149be0b88bf4ce1201b4ac979c26"
+dependencies = [
+ "console 0.13.0",
+ "lazy_static",
+ "tempfile",
+ "zeroize 0.9.3",
 ]
 
 [[package]]
@@ -863,7 +906,7 @@ dependencies = [
  "rand 0.7.3",
  "serde",
  "sha2 0.9.3",
- "zeroize",
+ "zeroize 1.2.0",
 ]
 
 [[package]]
@@ -871,6 +914,12 @@ name = "either"
 version = "1.6.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e78d4f1cc4ae33bbfc157ed5d5a5ef3bc29227303d595861deb238fcec4e9457"
+
+[[package]]
+name = "encode_unicode"
+version = "0.3.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a357d28ed41a50f9c765dbfe56cbc04a64e53e5fc58ba79fbc34c10ef3df831f"
 
 [[package]]
 name = "env_logger"
@@ -1536,6 +1585,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "indicatif"
+version = "0.15.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7baab56125e25686df467fe470785512329883aab42696d661247aca2a2896e4"
+dependencies = [
+ "console 0.14.0",
+ "lazy_static",
+ "number_prefix",
+ "regex",
+]
+
+[[package]]
 name = "instant"
 version = "0.1.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1794,7 +1855,7 @@ dependencies = [
  "byteorder",
  "keccak",
  "rand_core 0.5.1",
- "zeroize",
+ "zeroize 1.2.0",
 ]
 
 [[package]]
@@ -1944,6 +2005,12 @@ dependencies = [
  "hermit-abi",
  "libc",
 ]
+
+[[package]]
+name = "number_prefix"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "17b02fc0ff9a9e4b35b3342880f48e896ebf69f2967921fe8646bf5b7125956a"
 
 [[package]]
 name = "object"
@@ -2748,6 +2815,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b5eb417147ba9860a96cfe72a0b93bf88fee1744b5636ec99ab20c1aa9376581"
 
 [[package]]
+name = "remove_dir_all"
+version = "0.5.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3acd125665422973a33ac9d3dd2df85edad0f4ae9b00dafb1a05e43a9f5ef8e7"
+dependencies = [
+ "winapi 0.3.9",
+]
+
+[[package]]
 name = "ring"
 version = "0.16.20"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2759,16 +2835,6 @@ dependencies = [
  "spin",
  "untrusted",
  "web-sys",
- "winapi 0.3.9",
-]
-
-[[package]]
-name = "rpassword"
-version = "5.0.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ffc936cf8a7ea60c58f030fd36a612a48f440610214dc54bc36431f9ea0c3efb"
-dependencies = [
- "libc",
  "winapi 0.3.9",
 ]
 
@@ -2824,7 +2890,7 @@ dependencies = [
  "rand_core 0.5.1",
  "sha2 0.8.2",
  "subtle 2.4.0",
- "zeroize",
+ "zeroize 1.2.0",
 ]
 
 [[package]]
@@ -2849,7 +2915,7 @@ version = "0.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9182278ed645df3477a9c27bfee0621c621aa16f6972635f7f795dae3d81070f"
 dependencies = [
- "zeroize",
+ "zeroize 1.2.0",
 ]
 
 [[package]]
@@ -2858,7 +2924,7 @@ version = "0.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0673d6a6449f5e7d12a1caf424fd9363e2af3a4953023ed455e3c4beef4597c0"
 dependencies = [
- "zeroize",
+ "zeroize 1.2.0",
 ]
 
 [[package]]
@@ -3118,7 +3184,7 @@ dependencies = [
  "tiny-keccak",
  "twox-hash",
  "wasmi",
- "zeroize",
+ "zeroize 1.2.0",
 ]
 
 [[package]]
@@ -3510,7 +3576,7 @@ dependencies = [
  "pbkdf2 0.3.0",
  "schnorrkel",
  "sha2 0.8.2",
- "zeroize",
+ "zeroize 1.2.0",
 ]
 
 [[package]]
@@ -3593,12 +3659,36 @@ dependencies = [
 ]
 
 [[package]]
+name = "tempfile"
+version = "3.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "dac1c663cfc93810f88aed9b8941d48cabf856a1b111c29a40439018d870eb22"
+dependencies = [
+ "cfg-if 1.0.0",
+ "libc",
+ "rand 0.8.3",
+ "redox_syscall 0.2.4",
+ "remove_dir_all",
+ "winapi 0.3.9",
+]
+
+[[package]]
 name = "termcolor"
 version = "1.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2dfed899f0eb03f32ee8c6a0aabdb8a7949659e3466561fc0adf54e26d88c5f4"
 dependencies = [
  "winapi-util",
+]
+
+[[package]]
+name = "terminal_size"
+version = "0.1.16"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "86ca8ced750734db02076f44132d802af0b33b09942331f4459dde8636fd2406"
+dependencies = [
+ "libc",
+ "winapi 0.3.9",
 ]
 
 [[package]]
@@ -3681,7 +3771,7 @@ dependencies = [
  "sha2 0.9.3",
  "thiserror",
  "unicode-normalization",
- "zeroize",
+ "zeroize 1.2.0",
 ]
 
 [[package]]
@@ -4158,19 +4248,21 @@ dependencies = [
  "async-trait",
  "bulletproofs",
  "chacha20poly1305",
+ "console 0.13.0",
  "curve25519-dalek 3.0.2",
  "curve25519-gadgets",
+ "dialoguer",
  "directories-next",
  "env_logger",
  "frame-support",
  "hex",
+ "indicatif",
  "log",
  "merlin",
  "parity-scale-codec",
  "paw",
  "prost",
  "rand 0.8.3",
- "rpassword",
  "secrecy 0.7.0",
  "sha2 0.9.3",
  "sled",
@@ -4180,7 +4272,7 @@ dependencies = [
  "thiserror",
  "tiny-bip39 0.8.0",
  "uuid",
- "zeroize",
+ "zeroize 1.2.0",
 ]
 
 [[package]]
@@ -4263,6 +4355,12 @@ dependencies = [
  "winapi 0.2.8",
  "winapi-build",
 ]
+
+[[package]]
+name = "zeroize"
+version = "0.9.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "45af6a010d13e4cf5b54c94ba5a2b2eba5596b9e46bf5875612d332a1f2b3f86"
 
 [[package]]
 name = "zeroize"

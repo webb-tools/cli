@@ -2,13 +2,15 @@
 
 use codec::{Decode, Encode};
 use frame_support::Parameter;
+use subxt::balances::*;
+use subxt::extrinsic::*;
 use subxt::sp_core;
 use subxt::sp_runtime::generic::Header;
 use subxt::sp_runtime::traits::{
     AtLeast32Bit, BlakeTwo256, IdentifyAccount, Verify,
 };
 use subxt::sp_runtime::{MultiSignature, OpaqueExtrinsic};
-use subxt::{balances::*, extrinsic::*, system::*};
+use subxt::system::*;
 
 /// an easy way to extract the balance type from `T`
 pub type BalanceOf<T> = <T as Balances>::Balance;
@@ -49,20 +51,20 @@ pub struct Nullifier(pub [u8; 32]);
 pub struct Commitment(pub [u8; 32]);
 
 impl subxt::Runtime for WebbRuntime {
-    type Signature = Signature;
     type Extra = DefaultExtra<Self>;
+    type Signature = Signature;
 }
 
 impl System for WebbRuntime {
-    type Index = Index;
-    type BlockNumber = u32;
-    type Hash = Hash;
-    type Hashing = BlakeTwo256;
+    type AccountData = AccountData<BalanceOf<Self>>;
     type AccountId = AccountId;
     type Address = AccountId;
-    type Header = Header<Self::BlockNumber, BlakeTwo256>;
+    type BlockNumber = u32;
     type Extrinsic = OpaqueExtrinsic;
-    type AccountData = AccountData<BalanceOf<Self>>;
+    type Hash = Hash;
+    type Hashing = BlakeTwo256;
+    type Header = Header<Self::BlockNumber, BlakeTwo256>;
+    type Index = Index;
 }
 
 impl Balances for WebbRuntime {
@@ -162,10 +164,10 @@ pub struct WithdrawCall<T: Mixer> {
 }
 
 impl Mixer for WebbRuntime {
-    type GroupId = u32;
-    type Data = Data;
-    type Nullifier = Nullifier;
     type Commitment = Commitment;
+    type Data = Data;
+    type GroupId = u32;
+    type Nullifier = Nullifier;
 }
 
 #[cfg(all(test, feature = "integration-tests"))]

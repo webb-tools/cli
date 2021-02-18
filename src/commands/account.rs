@@ -1,11 +1,15 @@
+use std::io::Write;
+
 use async_trait::async_trait;
 use bip39::{Language, Mnemonic};
+use console::{style, Emoji};
+use dialoguer::theme::ColorfulTheme;
+use secrecy::SecretString;
 use structopt::StructOpt;
 use subxt::sp_core::crypto::{Ss58AddressFormat, Ss58Codec};
 use subxt::sp_runtime::traits::IdentifyAccount;
 
 use crate::context::ExecutionContext;
-use crate::utils;
 
 /// Modify or query the saved accounts.
 #[derive(StructOpt)]
@@ -32,7 +36,7 @@ pub enum AccountCommand {
 pub struct ImportAccount {
     /// an easy to remember account name.
     #[structopt(short, long)]
-    alias: String,
+    alias: Option<String>,
     /// the paper key or the mnemonic seed phrase
     /// that got generated with this account.
     ///
@@ -49,7 +53,7 @@ pub struct ImportAccount {
 pub struct GenerateAccount {
     /// an easy to remember account name.
     #[structopt(short, long)]
-    alias: String,
+    alias: Option<String>,
 }
 
 /// Removes the account from the local store.
@@ -64,27 +68,28 @@ pub struct ForgetAccount {}
 
 #[async_trait]
 impl super::CommandExec for AccountCommand {
-    async fn exec(&self, context: &mut ExecutionContext) -> anyhow::Result<()> {
+    async fn exec(self, context: &mut ExecutionContext) -> anyhow::Result<()> {
         use AccountCommand::*;
         match self {
             List => {
                 let mut accounts = context.accounts().to_owned();
+                let mut term = console::Term::stdout();
                 if accounts.is_empty() {
-                    println!();
-                    println!("it sounds that there is no accounts saved");
-                    println!("try generating or importing them.");
-                    println!();
-                    println!("$ webb account help");
+                    write!(term, "{} ", style("uh oh").red())?;
+                    writeln!(term, "there is no accounts saved")?;
+                    writeln!(term, "try generating or importing them.")?;
+                    writeln!(term)?;
+                    writeln!(term, "$ webb account help")?;
                     return Ok(());
                 }
                 // put the default account first.
                 accounts.sort_by(|a, b| b.is_default.cmp(&a.is_default));
 
                 for account in accounts {
-                    println!("{}: {}", account.alias, account.address);
+                    writeln!(term, "{}", account)?;
                 }
                 Ok(())
-            }
+            },
             Import(cmd) => cmd.exec(context).await,
             Generate(cmd) => cmd.exec(context).await,
             Forget(cmd) => cmd.exec(context).await,
@@ -94,62 +99,104 @@ impl super::CommandExec for AccountCommand {
 
 #[async_trait]
 impl super::CommandExec for ImportAccount {
-    async fn exec(&self, context: &mut ExecutionContext) -> anyhow::Result<()> {
-        println!("Importing account with {}", self.alias);
+    async fn exec(self, context: &mut ExecutionContext) -> anyhow::Result<()> {
+        let mut term = console::Term::stdout();
+        let theme = ColorfulTheme::default();
+        let alias = if let Some(val) = self.alias {
+            val
+        } else {
+            dialoguer::Input::with_theme(&theme)
+                .with_prompt("Account Alias")
+                .interact()?
+        };
+        writeln!(term, "Importing account with {}", style(&alias).blue())?;
+
         let paper_key = if let Some(paper_key) = self.mnemonic.clone() {
             Mnemonic::from_phrase(&paper_key, Language::English)?
         } else {
             crate::utils::ask_for_phrase("Enter PaperKey (Mnemonic Seed): ")?
         };
         if !context.has_secret() {
-            let secret = utils::get_password(context.home(), None)?;
+            let password = dialoguer::Password::with_theme(&theme)
+                .with_prompt("Enter Password")
+                .with_confirmation("Confirmation", "Passwords Mismatch")
+                .interact_on(&term)?;
+            let secret = SecretString::new(password);
             context.set_secret(secret);
         }
-        let alias = self.alias.clone();
-        let address = context.import_account(alias, paper_key)?;
+        let address = context.import_account(alias.clone(), paper_key)?;
         let account = address
             .into_account()
             .to_ss58check_with_version(Ss58AddressFormat::SubstrateAccount);
-        println!("Account Imported:");
-        println!("{}: {}", self.alias, account);
-        println!();
-        println!("To set this account as default:");
-        println!("    $ webb default {}", self.alias);
+        writeln!(term, "{} Account Imported!", Emoji("🎉", "※"))?;
+        writeln!(
+            term,
+            "{}: {}",
+            style(&alias).blue(),
+            style(account).dim().green()
+        )?;
+        writeln!(term)?;
+        writeln!(term, "Next! to set this account as default:")?;
+        writeln!(term, "    $ webb default {}", alias)?;
         Ok(())
     }
 }
 
 #[async_trait]
 impl super::CommandExec for GenerateAccount {
-    async fn exec(&self, context: &mut ExecutionContext) -> anyhow::Result<()> {
-        println!("Generating new account with {}", self.alias);
+    async fn exec(self, context: &mut ExecutionContext) -> anyhow::Result<()> {
+        let mut term = console::Term::stdout();
+        let theme = ColorfulTheme::default();
+        let alias = if let Some(val) = self.alias {
+            val
+        } else {
+            dialoguer::Input::with_theme(&theme)
+                .with_prompt("Account Alias")
+                .interact()?
+        };
 
-        let alias = self.alias.clone();
+        writeln!(term, "Generating new account with {}", style(&alias).blue())?;
+
         if !context.has_secret() {
-            let secret = utils::get_password(context.home(), None)?;
+            let password = dialoguer::Password::with_theme(&theme)
+                .with_prompt("Enter Password")
+                .with_confirmation("Confirmation", "Passwords Mismatch")
+                .interact_on(&term)?;
+            let secret = SecretString::new(password);
             context.set_secret(secret);
         }
-        let (address, seed) = context.generate_account(alias)?;
-        println!("Account Generated:");
-        println!("{}: {}", self.alias, address);
-        println!();
-        println!("IMPORTANT!!");
-        println!("Generated 12-word mnemonic seed:");
-        println!("{}", seed);
-        println!();
-        println!("Please write down your wallet's mnemonic seed and keep it in a safe place.");
-        println!("The mnemonic can be used to restore your wallet.");
-        println!("Keep it carefully to not lose your assets.");
-        println!();
-        println!("To set this account as default:");
-        println!("    $ webb default {}", self.alias);
+        let (address, seed) = context.generate_account(alias.clone())?;
+        writeln!(term, "{} Account Generated!", Emoji("🎉", "※"))?;
+        writeln!(term)?;
+        writeln!(
+            term,
+            "{}: {}",
+            style(&alias).blue(),
+            style(address).dim().green()
+        )?;
+        writeln!(term)?;
+        writeln!(
+            term,
+            "{emoji}  {i} {emoji}",
+            i = style("IMPORTANT").bright().bold().red(),
+            emoji = Emoji("⚠️", "!!")
+        )?;
+        writeln!(term, "Generated 12-word mnemonic seed:")?;
+        writeln!(term, "{}", style(seed).bright().bold())?;
+        writeln!(term)?;
+        writeln!(term, "Please write down your wallet's mnemonic seed and keep it in a safe place.")?;
+        writeln!(term, "The mnemonic can be used to restore your wallet.")?;
+        writeln!(term, "Keep it carefully to not lose your assets.")?;
+        writeln!(term)?;
+        writeln!(term, "To set this account as default:")?;
+        writeln!(term, "    $ webb default {}", alias)?;
         Ok(())
     }
 }
 
 #[async_trait]
 impl super::CommandExec for ForgetAccount {
-    async fn exec(&self, context: &mut ExecutionContext) -> anyhow::Result<()> {
+    async fn exec(self, context: &mut ExecutionContext) -> anyhow::Result<()> {
         todo!("forget account")
     }
 }

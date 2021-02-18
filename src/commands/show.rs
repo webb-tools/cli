@@ -1,4 +1,5 @@
-use anyhow::bail;
+use std::io::Write;
+
 use async_trait::async_trait;
 use structopt::StructOpt;
 
@@ -16,24 +17,24 @@ pub enum ShowCommand {
 
 #[async_trait]
 impl super::CommandExec for ShowCommand {
-    async fn exec(&self, context: &mut ExecutionContext) -> anyhow::Result<()> {
+    async fn exec(self, context: &mut ExecutionContext) -> anyhow::Result<()> {
+        let mut term = console::Term::stdout();
         match self {
             Self::Home => {
                 let home = context.home();
-                println!("{}", home.display());
-            }
+                writeln!(term, "{}", home.display())?;
+            },
             Self::Account => {
                 let accounts = context.accounts();
                 if let Some(account) = accounts.iter().find(|a| a.is_default) {
-                    println!("{}: {}", account.alias, account.address);
+                    writeln!(term, "{}", account)?;
                 } else {
-                    eprintln!("it sounds that you don't have any accounts.");
-                    eprintln!("try generating or importing them.");
-                    eprintln!("$ webb account help");
-                    eprintln!();
-                    bail!("no account available");
+                    writeln!(term, "you don't have any accounts.")?;
+                    writeln!(term, "try generating or importing them:")?;
+                    writeln!(term, "    $ webb account help")?;
+                    writeln!(term)?;
                 }
-            }
+            },
         };
         Ok(())
     }
