@@ -1,22 +1,27 @@
 use std::io::Write;
 use std::str::FromStr;
-use std::time::Duration;
 
+use anyhow::Context;
 use async_trait::async_trait;
-use console::style;
+use console::{style, Emoji};
 use indicatif::{ProgressBar, ProgressStyle};
 use secrecy::SecretString;
 use structopt::StructOpt;
-use webb_cli::mixer::{Note, TokenSymbol};
-use webb_cli::runtime::{MixerGroupIdsStore, WebbRuntime};
+use subxt::system::*;
+use subxt::Signer;
+use webb_cli::mixer::{Mixer, Note, TokenSymbol};
+use webb_cli::pallet::merkle::*;
+use webb_cli::pallet::mixer::*;
+use webb_cli::runtime::WebbRuntime;
 
 use crate::context::ExecutionContext;
+use crate::ext::OptionPromptExt;
 
 /// Webb Crypto Mixer.
 #[derive(StructOpt)]
 pub enum MixerCommand {
     /// List all of your saved Notes.
-    List,
+    ListNotes,
     /// Imports a previously generated Note.
     ImportNote(ImportNote),
     /// Generates a new Note and save it.
@@ -33,7 +38,7 @@ pub enum MixerCommand {
 impl super::CommandExec for MixerCommand {
     async fn exec(self, context: &mut ExecutionContext) -> anyhow::Result<()> {
         match self {
-            MixerCommand::List => {
+            MixerCommand::ListNotes => {
                 let mut term = console::Term::stdout();
                 let mut notes = context.notes().to_owned();
                 if notes.is_empty() {
@@ -79,29 +84,33 @@ impl super::CommandExec for ImportNote {
     async fn exec(self, context: &mut ExecutionContext) -> anyhow::Result<()> {
         let mut term = console::Term::stdout();
         let theme = dialoguer::theme::ColorfulTheme::default();
-        let alias = if let Some(val) = self.alias {
-            val
-        } else {
-            dialoguer::Input::with_theme(&theme)
-                .with_prompt("Note Alias")
-                .interact_on(&term)?
-        };
+        let alias = self.alias.unwrap_or_prompt("Note Alias", &theme)?;
         let note = if let Some(val) = self.note {
             Note::from_str(&val)?
         } else {
             loop {
-                let value: String = dialoguer::Input::with_theme(&theme)
-                    .with_prompt("Note")
-                    .interact_on(&term)?;
-                match Note::from_str(&value) {
-                    Ok(v) => break v,
+                let v = Option::<Note>::None.unwrap_or_prompt("Note", &theme);
+                match v {
+                    Ok(note) => break note,
                     Err(e) => {
                         writeln!(term, "{}", style(e).red())?;
                         continue;
                     },
-                };
+                }
             }
         };
+        if !context.has_secret() {
+            let password = Option::<SecretString>::None
+                .unwrap_or_prompt_password(
+                    "Default Account Password",
+                    &theme,
+                )?;
+            context.set_secret(password);
+        }
+        // to make sure that the password is correct.
+        context
+            .signer()
+            .context("incorrect default account password!")?;
         let mixer_group_id = context.import_note(alias.clone(), note)?;
         writeln!(
             term,
@@ -139,15 +148,10 @@ pub struct GenerateNote {
 impl super::CommandExec for GenerateNote {
     async fn exec(self, context: &mut ExecutionContext) -> anyhow::Result<()> {
         type MixerGroupIds = MixerGroupIdsStore<WebbRuntime>;
+
         let mut term = console::Term::stdout();
         let theme = dialoguer::theme::ColorfulTheme::default();
-        let alias = if let Some(val) = self.alias {
-            val
-        } else {
-            dialoguer::Input::with_theme(&theme)
-                .with_prompt("Note Alias")
-                .interact_on(&term)?
-        };
+        let alias = self.alias.unwrap_or_prompt("Note Alias", &theme)?;
         let pb = ProgressBar::new_spinner();
         pb.enable_steady_tick(60);
         let pb_style = ProgressStyle::default_spinner()
@@ -156,14 +160,12 @@ impl super::CommandExec for GenerateNote {
         pb.set_style(pb_style.clone());
         pb.set_prefix("[1/3]");
         pb.set_message("Connecting ..");
-        async_std::task::sleep(Duration::from_secs(2)).await;
         let client = context.client().await?;
         pb.set_prefix("[2/3]");
         pb.set_message("Getting Mixer Groups ..");
         let mixer_group_ids = client
             .fetch_or_default(&MixerGroupIds::default(), None)
             .await?;
-        async_std::task::sleep(Duration::from_secs(3)).await;
         pb.finish_and_clear();
         let mixer_group_id = if let Some(val) = self.group {
             if mixer_group_ids.contains(&val) {
@@ -173,15 +175,12 @@ impl super::CommandExec for GenerateNote {
                 anyhow::bail!("Invalid Mixer group!");
             }
         } else {
+            let f = |i| format!("Group #{} with 1,000{} EDG", i, "0".repeat(i));
             let items: Vec<_> = mixer_group_ids
                 .iter()
-                .map(|i| {
-                    format!(
-                        "Group #{} with 1,000{} EDG",
-                        i,
-                        "0".repeat(*i as usize)
-                    )
-                })
+                .cloned()
+                .map(|v| v as usize)
+                .map(f)
                 .collect();
             let i = dialoguer::Select::with_theme(&theme)
                 .with_prompt("Select Mixer Group")
@@ -190,12 +189,16 @@ impl super::CommandExec for GenerateNote {
             mixer_group_ids[i]
         };
         if !context.has_secret() {
-            let password = dialoguer::Password::with_theme(&theme)
-                .with_prompt("Password")
-                .interact_on(&term)?;
-            let secret = SecretString::new(password);
-            context.set_secret(secret);
+            let password = Option::<SecretString>::None
+                .unwrap_or_prompt_password(
+                    "Default Account Password",
+                    &theme,
+                )?;
+            context.set_secret(password);
         }
+        context
+            .signer()
+            .context("incorrect default account password!")?;
         let pb = ProgressBar::new_spinner();
         pb.enable_steady_tick(60);
         pb.set_style(pb_style);
@@ -240,12 +243,105 @@ impl super::CommandExec for ForgetNote {
 /// After generating a Note, you can do a deposit to the mixer
 /// using this Note.
 #[derive(StructOpt)]
-pub struct DepositAsset {}
+pub struct DepositAsset {
+    /// The Note alias that will be used to do the deposit.
+    #[structopt(short, long)]
+    alias: Option<String>,
+}
 
 #[async_trait]
 impl super::CommandExec for DepositAsset {
     async fn exec(self, context: &mut ExecutionContext) -> anyhow::Result<()> {
-        todo!()
+        let mut term = console::Term::stdout();
+        let theme = dialoguer::theme::ColorfulTheme::default();
+        let notes: Vec<_> =
+            context.notes().iter().filter(|n| !n.used).collect();
+        if notes.is_empty() {
+            writeln!(term)?;
+            writeln!(term, "there is no unused notes saved")?;
+            writeln!(term, "try generating new ones or importing them.")?;
+            writeln!(term)?;
+            writeln!(term, "$ webb mixer help")?;
+            return Ok(());
+        }
+        let note = if let Some(val) = self.alias {
+            notes
+                .into_iter()
+                .cloned()
+                .find(|n| n.alias == val)
+                .context("note not found")
+        } else {
+            let items: Vec<_> =
+                notes.iter().map(|n| format!("{}", n)).collect();
+            let notes = notes.to_owned();
+            let i = dialoguer::Select::with_theme(&theme)
+                .with_prompt("Select one of these notes")
+                .items(&items)
+                .interact_on(&term)?;
+            Ok(notes[i].clone())
+        }?;
+
+        if !context.has_secret() {
+            let password = Option::<SecretString>::None
+                .unwrap_or_prompt_password(
+                    "Default Account Password",
+                    &theme,
+                )?;
+            context.set_secret(password);
+        }
+        let signer = context
+            .signer()
+            .context("incorrect default account password!")?;
+        let secret_note = context.decrypt_note(note.uuid.clone())?;
+        let pb = ProgressBar::new_spinner();
+        let pb_style = ProgressStyle::default_spinner()
+            .tick_chars("⠁⠂⠄⡀⢀⠠⠐⠈ ")
+            .template("{prefix:.bold.dim} {spinner} {wide_msg}");
+        pb.enable_steady_tick(60);
+        pb.set_style(pb_style);
+        pb.set_prefix("[1/4]");
+        pb.set_message("Creating Mixer..");
+        let mut mixer = Mixer::new(secret_note.mixer_id);
+        pb.set_prefix("[2/4]");
+        pb.set_message("Adding Note to the Mixer ...");
+        let leaf = mixer.save_note(secret_note);
+        pb.set_prefix("[3/4]");
+        pb.set_message("Connecting to the network...");
+        let client = context.client().await?;
+        pb.set_prefix("[4/4]");
+        pb.set_message("Doing the deposit...");
+        let xt = client
+            .deposit_and_watch(&signer, note.mixer_id, vec![leaf])
+            .await?;
+        context.mark_note_as_used(note.uuid)?;
+        pb.finish_and_clear();
+        let xt_block = xt.block;
+        let maybe_block = client.block(Some(xt_block)).await?;
+        let signed_block =
+            maybe_block.context("reading block from network!")?;
+        let number = signed_block.block.header.number;
+        let hash = signed_block.block.header.hash();
+        let account_id = signer.account_id();
+        let account = client.account(&account_id, None).await?;
+        let balance = account.data.free;
+        writeln!(term, "{} Note Deposited Successfully!", Emoji("🎉", "※"))?;
+        writeln!(
+            term,
+            "Block Number: #{} {}",
+            style(number).blue(),
+            style(hash).dim().green()
+        )?;
+        writeln!(term)?;
+        writeln!(
+            term,
+            "Your Current Free Balance: {}",
+            style(balance).green().bold()
+        )?;
+        writeln!(term)?;
+        writeln!(term, "Next! to do a withdraw:")?;
+        writeln!(term, "    $ webb mixer withdraw -a {}", note.alias)?;
+
+        Ok(())
     }
 }
 
@@ -254,11 +350,137 @@ impl super::CommandExec for DepositAsset {
 /// After doing a deposit, you use the same Note used in the `Deposit`
 /// Operation to do a Withdraw and optain your assets again.
 #[derive(StructOpt)]
-pub struct WithdrawAsset {}
+pub struct WithdrawAsset {
+    /// The Note alias that will be used for withdrawal.
+    ///
+    /// this note must be used before in a deposit.
+    #[structopt(short, long)]
+    alias: Option<String>,
+}
 
 #[async_trait]
 impl super::CommandExec for WithdrawAsset {
     async fn exec(self, context: &mut ExecutionContext) -> anyhow::Result<()> {
-        todo!()
+        type MixerGroups = MixerGroupsStore<WebbRuntime>;
+        type CachedRoots = CachedRootsStore<WebbRuntime>;
+
+        let mut term = console::Term::stdout();
+        let theme = dialoguer::theme::ColorfulTheme::default();
+        let notes: Vec<_> = context.notes().iter().filter(|n| n.used).collect();
+        if notes.is_empty() {
+            writeln!(term)?;
+            writeln!(term, "there is no used notes!")?;
+            writeln!(term, "try generating new ones and do a deposit first or importing them.")?;
+            writeln!(term)?;
+            writeln!(term, "$ webb mixer help")?;
+            return Ok(());
+        }
+        let note = if let Some(val) = self.alias {
+            notes
+                .into_iter()
+                .cloned()
+                .find(|n| n.alias == val)
+                .context("note not found")
+        } else {
+            let items: Vec<_> =
+                notes.iter().map(|n| format!("{}", n)).collect();
+            let notes = notes.to_owned();
+            let i = dialoguer::Select::with_theme(&theme)
+                .with_prompt("Select one of these notes")
+                .items(&items)
+                .interact_on(&term)?;
+            Ok(notes[i].clone())
+        }?;
+
+        if !context.has_secret() {
+            let password = Option::<SecretString>::None
+                .unwrap_or_prompt_password(
+                    "Default Account Password",
+                    &theme,
+                )?;
+            context.set_secret(password);
+        }
+        let signer = context
+            .signer()
+            .context("incorrect default account password!")?;
+        let secret_note = context.decrypt_note(note.uuid.clone())?;
+        let pb = ProgressBar::new_spinner();
+        let pb_style = ProgressStyle::default_spinner()
+            .tick_chars("⠁⠂⠄⡀⢀⠠⠐⠈ ")
+            .template("{prefix:.bold.dim} {spinner} {wide_msg}");
+        pb.enable_steady_tick(60);
+        pb.set_style(pb_style);
+        pb.set_prefix("[1/6]");
+        pb.set_message("Creating Mixer..");
+        let mut mixer = Mixer::new(secret_note.mixer_id);
+        pb.set_prefix("[2/6]");
+        pb.set_message("Adding Note to the Mixer ...");
+        let leaf = mixer.save_note(secret_note);
+        pb.set_prefix("[3/6]");
+        pb.set_message("Connecting to the network...");
+        let client = context.client().await?;
+        pb.set_prefix("[4/6]");
+        pb.set_message(&format!("Getting Mixer #{} leaves", note.mixer_id));
+        let mixer_info = client
+            .fetch(&MixerGroups::new(note.mixer_id), None)
+            .await?
+            .context("mixer info not found!")?;
+        mixer.add_leaves(mixer_info.leaves);
+        let recent_hash = client.block_hash(None).await?;
+        let recent = client
+            .block(recent_hash)
+            .await?
+            .context("getting last block")?;
+        let roots = client
+            .fetch(
+                &CachedRoots::new(recent.block.header.number, note.mixer_id),
+                None,
+            )
+            .await?
+            .context("no cached roots on the block!")?;
+        let root = roots.first().cloned().context("recent roots are empty!")?;
+        pb.set_prefix("[5/6]");
+        pb.set_message("Generating zkProof ..");
+        let zkproof = mixer.generate_proof(root, leaf);
+        pb.set_prefix("[6/6]");
+        pb.set_message("Doing the Withdraw! ...");
+        let xt = client
+            .withdraw_and_watch(
+                &signer,
+                note.mixer_id,
+                recent.block.header.number,
+                root,
+                zkproof.comms,
+                zkproof.nullifier_hash,
+                zkproof.proof_bytes,
+                zkproof.leaf_index_commitments,
+                zkproof.proof_commitments,
+            )
+            .await?;
+        context.forget_note(note.uuid).context("remove old note")?;
+        pb.finish_and_clear();
+        let xt_block = xt.block;
+        let maybe_block = client.block(Some(xt_block)).await?;
+        let signed_block =
+            maybe_block.context("reading block from network!")?;
+        let number = signed_block.block.header.number;
+        let hash = signed_block.block.header.hash();
+        let account_id = signer.account_id();
+        let account = client.account(&account_id, None).await?;
+        let balance = account.data.free;
+        writeln!(term, "{} Note Withdrawn Successfully!", Emoji("🎉", "※"))?;
+        writeln!(
+            term,
+            "Block Number: #{} {}",
+            style(number).blue(),
+            style(hash).dim().green()
+        )?;
+        writeln!(term)?;
+        writeln!(
+            term,
+            "Your Current Free Balance: {}",
+            style(balance).green().bold()
+        )?;
+        Ok(())
     }
 }

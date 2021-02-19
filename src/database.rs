@@ -42,20 +42,23 @@ impl SledDatastore {
         &self,
         key: impl Into<sled::IVec>,
     ) -> anyhow::Result<Option<sled::IVec>> {
-        let secret =
-            self.secret.clone().expect("password must be provided here");
-        let mut deckey_bytes = utils::hash_password(secret)?;
+        let secret = self
+            .secret
+            .clone()
+            .context("password must be provided for decryption!")?;
+        let mut deckey_hash = utils::sha256(secret);
         let encrypted = self.sled.get(key.into())?;
         if let Some(data) = encrypted {
             let nonce_bytes = &data[0..24]; // 24 bytes are the nonce.
-            let conents = &data[24..]; // the rest is the encrypted data.
-            let secret = &deckey_bytes.as_bytes()[64..96];
-            let deckey = Key::from_slice(secret);
+            let contents = &data[24..]; // the rest is the encrypted data.
+            let deckey = Key::from_slice(&deckey_hash);
             let nonce = XNonce::from_slice(nonce_bytes);
             let aead = XChaCha20Poly1305::new(deckey);
-            let plaintext =
-                aead.decrypt(nonce, conents).expect("decryption failure!");
-            deckey_bytes.zeroize();
+            let plaintext = aead
+                .decrypt(nonce, contents)
+                .map_err(|_| anyhow::anyhow!("datastore decrypt failed"))
+                .context("data decryption!")?;
+            deckey_hash.zeroize();
             Ok(Some(plaintext.into()))
         } else {
             Ok(None)
@@ -67,24 +70,25 @@ impl SledDatastore {
         key: impl Into<sled::IVec>,
         value: impl Into<sled::IVec>,
     ) -> anyhow::Result<Option<sled::IVec>> {
-        let secret =
-            self.secret.clone().expect("password must be provided here");
-        let mut enckey_bytes = utils::hash_password(secret)?;
+        let secret = self
+            .secret
+            .clone()
+            .context("password must be provided for encryption")?;
+        let mut enckey_hash = utils::sha256(secret);
         let mut buffer = Vec::new(); // a buffer to hold the nonce + encrypted bytes.
         let mut nonce_bytes = [0u8; 24];
         let mut rng = rand::thread_rng();
         rng.fill_bytes(&mut nonce_bytes);
         let nonce = XNonce::from_slice(&nonce_bytes);
-        let secret = &enckey_bytes.as_bytes()[64..96];
-        let enckey = Key::from_slice(secret);
+        let enckey = Key::from_slice(&enckey_hash);
         let aead = XChaCha20Poly1305::new(enckey);
-
         let mut encrypted = aead
             .encrypt(&nonce, value.into().as_ref())
-            .expect("encryption failure");
-        buffer.extend_from_slice(&nonce_bytes); // add nonce. [0..24]
+            .map_err(|_| anyhow::anyhow!("datastore encryption failed"))
+            .context("data encryption")?;
+        buffer.extend(&nonce_bytes); // add nonce. [0..24]
         buffer.append(&mut encrypted); // add encrypted bytes [24..]
-        enckey_bytes.zeroize(); // clear the key.
+        enckey_hash.zeroize(); // clear the key.
         let val = self
             .sled
             .insert(key.into(), buffer)
@@ -117,5 +121,12 @@ impl SledDatastore {
 
     pub fn set_secret(&mut self, secret: SecretString) {
         self.secret = Some(secret);
+    }
+
+    pub fn remove(
+        &self,
+        key: impl Into<sled::IVec>,
+    ) -> anyhow::Result<Option<sled::IVec>> {
+        self.sled.remove(key.into()).map_err(anyhow::Error::from)
     }
 }

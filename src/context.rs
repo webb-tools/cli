@@ -1,11 +1,12 @@
 use std::path::PathBuf;
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use bip39::Mnemonic;
 use directories_next::ProjectDirs;
 use secrecy::SecretString;
 use subxt::sp_core::sr25519::Pair as Sr25519Pair;
-use subxt::Client;
+use subxt::sp_core::Pair;
+use subxt::{Client, PairSigner};
 use webb_cli::account;
 use webb_cli::keystore::PublicFor;
 use webb_cli::mixer::{Mixer, Note, TokenSymbol};
@@ -48,9 +49,26 @@ impl ExecutionContext {
         Ok(context)
     }
 
-    #[allow(unused)]
-    pub fn default_account(&self) -> Option<&AccountRaw> {
-        self.accounts.iter().find(|raw| raw.is_default)
+    pub fn default_account(&self) -> Result<&AccountRaw> {
+        self.accounts
+            .iter()
+            .find(|raw| raw.is_default)
+            .context("must have a default account")
+    }
+
+    pub fn signer(&self) -> Result<PairSigner<WebbRuntime, Sr25519Pair>> {
+        let default_account = self.default_account()?;
+        let mut seed_key = default_account.uuid.clone();
+        seed_key.push_str("_seed");
+        let seed = self
+            .db
+            .read(seed_key.as_bytes())?
+            .context("signer encrypted seed")?;
+        let pair = Sr25519Pair::from_seed_slice(&seed).map_err(|_| {
+            anyhow::anyhow!("failed to create keypair from seed")
+        })?;
+        let signer = PairSigner::new(pair);
+        Ok(signer)
     }
 
     pub fn home(&self) -> PathBuf { self.dirs.data_dir().to_path_buf() }
@@ -226,6 +244,40 @@ impl ExecutionContext {
         prost::Message::encode(&v, &mut buf)?;
         self.db.write_plaintext(b"notes_ids", buf)?;
         Ok(raw.mixer_id)
+    }
+
+    pub fn decrypt_note(&self, uuid: String) -> Result<Note> {
+        let mut key = uuid;
+        key.push_str("_secret");
+        let buf = self
+            .db
+            .read(key.as_bytes())?
+            .context("finding the encrypted note")?;
+        let note_str = String::from_utf8(buf.to_vec())?;
+        let note = note_str.parse()?;
+        Ok(note)
+    }
+
+    pub fn mark_note_as_used(&mut self, uuid: String) -> Result<()> {
+        let metadata = self
+            .db
+            .read_plaintext(uuid.as_bytes())?
+            .context("reading note metadata")?;
+        let mut note: NoteRaw = prost::Message::decode(metadata.as_ref())?;
+        note.used = true;
+
+        let mut buf = Vec::new();
+        prost::Message::encode(&note, &mut buf)?;
+        self.db.write_plaintext(uuid.as_bytes(), buf)?;
+        Ok(())
+    }
+
+    pub fn forget_note(&self, uuid: String) -> Result<()> {
+        self.db.remove(uuid.as_bytes())?;
+        let mut key = uuid;
+        key.push_str("_secret");
+        self.db.remove(key.as_bytes())?;
+        Ok(())
     }
 
     fn load_accounts(db: &SledDatastore) -> Result<Vec<AccountRaw>> {

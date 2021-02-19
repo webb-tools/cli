@@ -1,27 +1,14 @@
 use std::io::Write;
 
-use anyhow::{anyhow, Context, Result};
-use argon2::password_hash::SaltString;
-use argon2::PasswordHasher;
+use anyhow::{Context, Result};
 use bip39::{Language, Mnemonic};
 use console::style;
 use secrecy::{ExposeSecret, SecretString};
+use sha2::Digest;
 
 /// Parse a sercret string, returning a displayable error.
 pub fn secret_string_from_str(s: &str) -> Result<SecretString> {
     std::str::FromStr::from_str(s).context("read secret string")
-}
-
-pub fn hash_password(password: SecretString) -> Result<String> {
-    let mut rng = rand::thread_rng();
-    let salt = SaltString::generate(&mut rng);
-    argon2::Argon2::default()
-        .hash_password_simple(
-            password.expose_secret().as_bytes(),
-            salt.as_ref(),
-        )
-        .map_err(|_| anyhow!("Failed to hash the password"))
-        .map(|v| v.to_string())
 }
 
 pub fn ask_for_phrase(prompt: &str) -> Result<Mnemonic> {
@@ -42,4 +29,10 @@ pub fn ask_for_phrase(prompt: &str) -> Result<Mnemonic> {
         }
         writeln!(term, "Invalid mnemonic")?;
     }
+}
+
+pub fn sha256(s: SecretString) -> Vec<u8> {
+    let mut hasher = sha2::Sha256::new();
+    hasher.update(s.expose_secret());
+    hasher.finalize().to_vec()
 }

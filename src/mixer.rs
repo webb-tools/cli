@@ -11,7 +11,7 @@ use curve25519_gadgets::fixed_deposit_tree::builder::{
 use merlin::Transcript;
 
 use crate::error::Error;
-use crate::runtime::{Commitment, Data};
+use crate::pallet::{Commitment, Data};
 
 const NOTE_PREFIX: &str = "webb.mix";
 
@@ -38,11 +38,11 @@ pub struct Note {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ZkProof {
-    comms: Vec<Commitment>,
-    nullifier_hash: Data,
-    proof_bytes: Vec<u8>,
-    leaf_index_commitments: Vec<Commitment>,
-    proof_commitments: Vec<Commitment>,
+    pub comms: Vec<Commitment>,
+    pub nullifier_hash: Data,
+    pub proof_bytes: Vec<u8>,
+    pub leaf_index_commitments: Vec<Commitment>,
+    pub proof_commitments: Vec<Commitment>,
 }
 
 impl fmt::Display for TokenSymbol {

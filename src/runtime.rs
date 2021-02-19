@@ -1,18 +1,12 @@
-#![allow(clippy::too_many_arguments)]
-
-use std::marker::PhantomData;
-
-use codec::{Decode, Encode};
-use frame_support::Parameter;
 use subxt::balances::*;
 use subxt::extrinsic::*;
 use subxt::sp_core;
 use subxt::sp_runtime::generic::Header;
-use subxt::sp_runtime::traits::{
-    AtLeast32Bit, BlakeTwo256, IdentifyAccount, Verify,
-};
+use subxt::sp_runtime::traits::{BlakeTwo256, IdentifyAccount, Verify};
 use subxt::sp_runtime::{MultiSignature, OpaqueExtrinsic};
 use subxt::system::*;
+
+use crate::pallet;
 
 /// an easy way to extract the balance type from `T`
 pub type BalanceOf<T> = <T as Balances>::Balance;
@@ -43,15 +37,6 @@ pub type Hash = sp_core::H256;
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct WebbRuntime;
 
-#[derive(Debug, Clone, Copy, Eq, PartialEq, Default, Encode, Decode)]
-pub struct Data(pub [u8; 32]);
-
-#[derive(Debug, Clone, Copy, Eq, PartialEq, Default, Encode, Decode)]
-pub struct Nullifier(pub [u8; 32]);
-
-#[derive(Debug, Clone, Copy, Eq, PartialEq, Default, Encode, Decode)]
-pub struct Commitment(pub [u8; 32]);
-
 impl subxt::Runtime for WebbRuntime {
     type Extra = DefaultExtra<Self>;
     type Signature = Signature;
@@ -73,127 +58,29 @@ impl Balances for WebbRuntime {
     type Balance = Balance;
 }
 
-#[derive(Encode, Decode, PartialEq, Debug)]
-pub struct MixerInfo<T: Mixer> {
-    pub minimum_deposit_length_for_reward: T::BlockNumber,
-    pub fixed_deposit_size: BalanceOf<T>,
-    pub leaves: Vec<Data>,
-}
-
-#[subxt::module]
-pub trait Mixer: System + Balances {
-    /// The overarching group ID type
-    type GroupId: 'static
-        + Encode
-        + Decode
-        + Parameter
-        + AtLeast32Bit
-        + Default
-        + Copy
-        + Send
-        + Sync;
-    type Data: Encode
-        + Decode
-        + Parameter
-        + PartialEq
-        + Eq
-        + Default
-        + Send
-        + Sync
-        + 'static;
-    type Nullifier: Encode
-        + Decode
-        + Parameter
-        + PartialEq
-        + Eq
-        + Default
-        + Send
-        + Sync
-        + 'static;
-    type Commitment: Encode
-        + Decode
-        + Parameter
-        + PartialEq
-        + Eq
-        + Default
-        + Send
-        + Sync
-        + 'static;
-}
-
-// Storage ..
-
-#[derive(Clone, Debug, Eq, Encode, PartialEq, subxt::Store)]
-pub struct MixerGroupsStore<T: Mixer> {
-    #[store(returns = MixerInfo<T>)]
-    id: T::GroupId,
-}
-
-#[derive(Clone, Debug, Eq, Encode, PartialEq, subxt::Store)]
-pub struct MixerGroupIdsStore<T: Mixer> {
-    #[store(returns = Vec<T::GroupId>)]
-    __unused: PhantomData<T>,
-}
-
-impl<T: Mixer> Default for MixerGroupIdsStore<T> {
-    fn default() -> Self {
-        Self {
-            __unused: PhantomData,
-        }
-    }
-}
-
-// Events ..
-
-#[derive(Clone, Debug, Decode, Eq, PartialEq, subxt::Event)]
-pub struct DepositEvent<T: Mixer> {
-    group_id: T::GroupId,
-    account_id: T::AccountId,
-    nullifier: Nullifier,
-}
-
-#[derive(Clone, Debug, Decode, Eq, PartialEq, subxt::Event)]
-pub struct WithdrawEvent<T: Mixer> {
-    group_id: T::GroupId,
-    account_id: T::AccountId,
-    nullifier: Nullifier,
-}
-
-// Calls ..
-
-#[derive(Clone, Debug, Encode, Eq, PartialEq, subxt::Call)]
-pub struct DepositCall<T: Mixer> {
-    group_id: T::GroupId,
-    data_points: Vec<Data>,
-}
-
-#[derive(Clone, Debug, Encode, Eq, PartialEq, subxt::Call)]
-pub struct WithdrawCall<T: Mixer> {
-    group_id: T::GroupId,
-    cached_block: T::BlockNumber,
-    cached_root: Data,
-    comms: Vec<Commitment>,
-    nullifier_hash: Data,
-    proof_bytes: Vec<u8>,
-    leaf_index_commitments: Vec<Commitment>,
-    proof_commitments: Vec<Commitment>,
-}
-
-impl Mixer for WebbRuntime {
-    type Commitment = Commitment;
-    type Data = Data;
+impl pallet::mixer::Mixer for WebbRuntime {
+    type Commitment = pallet::Commitment;
+    type Data = pallet::Data;
     type GroupId = u32;
-    type Nullifier = Nullifier;
+    type Nullifier = pallet::Nullifier;
+}
+
+impl pallet::merkle::Merkle for WebbRuntime {
+    type GroupId = u32;
 }
 
 #[cfg(all(test, feature = "integration-tests"))]
 mod tests {
     use super::*;
+    use crate::pallet::merkle::*;
+    use crate::pallet::mixer::*;
+    use crate::pallet::Data;
     use sp_keyring::AccountKeyring;
     use subxt::PairSigner;
 
     type MixerGroups = MixerGroupsStore<WebbRuntime>;
     type MixerGroupIds = MixerGroupIdsStore<WebbRuntime>;
+    type CachedRoots = CachedRootsStore<WebbRuntime>;
 
     async fn get_client() -> subxt::Client<WebbRuntime> {
         subxt::ClientBuilder::new()
@@ -233,5 +120,11 @@ mod tests {
         let maybe_block = client.block(Some(xt.block)).await.unwrap();
         let signed_block = maybe_block.unwrap();
         println!("Number: #{}", signed_block.block.header.number);
+
+        let cached_roots = client
+            .fetch(&CachedRoots::new(signed_block.block.header.number, 3), None)
+            .await
+            .unwrap();
+        println!("Cached Roots: {:?}", cached_roots);
     }
 }

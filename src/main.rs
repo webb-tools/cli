@@ -8,6 +8,7 @@ use structopt::StructOpt;
 mod commands;
 mod context;
 mod database;
+mod ext;
 mod raw;
 mod utils;
 

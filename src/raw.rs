@@ -57,7 +57,7 @@ impl fmt::Display for NoteRaw {
             f,
             "{} ",
             if self.used {
-                Emoji("❌ ", "*")
+                Emoji("📦 ", "*")
             } else {
                 Emoji("✔️ ", "-")
             }

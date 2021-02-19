@@ -10,6 +10,7 @@ use subxt::sp_core::crypto::{Ss58AddressFormat, Ss58Codec};
 use subxt::sp_runtime::traits::IdentifyAccount;
 
 use crate::context::ExecutionContext;
+use crate::ext::OptionPromptExt;
 
 /// Modify or query the saved accounts.
 #[derive(StructOpt)]
@@ -102,27 +103,20 @@ impl super::CommandExec for ImportAccount {
     async fn exec(self, context: &mut ExecutionContext) -> anyhow::Result<()> {
         let mut term = console::Term::stdout();
         let theme = ColorfulTheme::default();
-        let alias = if let Some(val) = self.alias {
-            val
-        } else {
-            dialoguer::Input::with_theme(&theme)
-                .with_prompt("Account Alias")
-                .interact()?
-        };
+        let alias = self.alias.unwrap_or_prompt("Account Alias", &theme)?;
         writeln!(term, "Importing account with {}", style(&alias).blue())?;
 
-        let paper_key = if let Some(paper_key) = self.mnemonic.clone() {
+        let paper_key = if let Some(paper_key) = self.mnemonic {
             Mnemonic::from_phrase(&paper_key, Language::English)?
         } else {
             crate::utils::ask_for_phrase("Enter PaperKey (Mnemonic Seed): ")?
         };
         if !context.has_secret() {
-            let password = dialoguer::Password::with_theme(&theme)
-                .with_prompt("Enter Password")
-                .with_confirmation("Confirmation", "Passwords Mismatch")
-                .interact_on(&term)?;
-            let secret = SecretString::new(password);
-            context.set_secret(secret);
+            let password = Option::<SecretString>::None
+                .unwrap_or_prompt_password_with_confirmation(
+                    "Password", &theme,
+                )?;
+            context.set_secret(password);
         }
         let address = context.import_account(alias.clone(), paper_key)?;
         let account = address
@@ -147,23 +141,15 @@ impl super::CommandExec for GenerateAccount {
     async fn exec(self, context: &mut ExecutionContext) -> anyhow::Result<()> {
         let mut term = console::Term::stdout();
         let theme = ColorfulTheme::default();
-        let alias = if let Some(val) = self.alias {
-            val
-        } else {
-            dialoguer::Input::with_theme(&theme)
-                .with_prompt("Account Alias")
-                .interact()?
-        };
-
+        let alias = self.alias.unwrap_or_prompt("Account Alias", &theme)?;
         writeln!(term, "Generating new account with {}", style(&alias).blue())?;
 
         if !context.has_secret() {
-            let password = dialoguer::Password::with_theme(&theme)
-                .with_prompt("Enter Password")
-                .with_confirmation("Confirmation", "Passwords Mismatch")
-                .interact_on(&term)?;
-            let secret = SecretString::new(password);
-            context.set_secret(secret);
+            let password = Option::<SecretString>::None
+                .unwrap_or_prompt_password_with_confirmation(
+                    "Password", &theme,
+                )?;
+            context.set_secret(password);
         }
         let (address, seed) = context.generate_account(alias.clone())?;
         writeln!(term, "{} Account Generated!", Emoji("🎉", "※"))?;
@@ -177,9 +163,9 @@ impl super::CommandExec for GenerateAccount {
         writeln!(term)?;
         writeln!(
             term,
-            "{emoji}  {i} {emoji}",
+            "{emoji} {i} {emoji}",
             i = style("IMPORTANT").bright().bold().red(),
-            emoji = Emoji("⚠️", "!!")
+            emoji = Emoji("⚠️ ", "!!")
         )?;
         writeln!(term, "Generated 12-word mnemonic seed:")?;
         writeln!(term, "{}", style(seed).bright().bold())?;
