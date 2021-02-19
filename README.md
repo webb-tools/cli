@@ -1,11 +1,20 @@
 <h1 align="center">Webb CLI</h1>
 
 <p align="center">
-    <strong>🕸️ The Webb Command-line tools 🧰</strong>
+    <strong>🕸️  The eWbb Command-line tools 🧰</strong>
 </p>
 
 <br />
 
+## Features
+
+* Easy to Use 🐤
+* Fast ⚡
+* Secure 🔒
+* Misuse-resistant 🚫
+* Privacy 🕵️
+
+Read More here: [Webb CLI: Goals and Ideas](https://github.com/webb-tools/cli/discussions/2)
 
 ## Install ⛹️
 
