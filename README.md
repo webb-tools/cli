@@ -1,12 +1,14 @@
 <h1 align="center">Webb CLI</h1>
 
 <p align="center">
-    <strong>🕸️  The eWbb Command-line tools 🧰</strong>
+    <strong>🕸️  The Webb Command-line tools  🧰</strong>
+    <br />
+    <sub> ⚠️ Beta Software ⚠️ </sub>
 </p>
 
 <br />
 
-## Features
+## Features ✨
 
 * Easy to Use 🐤
 * Fast ⚡
