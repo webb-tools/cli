@@ -14,4 +14,4 @@ linker = "rust-lld.exe"
 # rustflags = ["-Zshare-generics=y"]
 
 [alias]
-webb = "run -q --bin webb --features cli --"
+webb = "run --release -q --bin webb --features cli --"

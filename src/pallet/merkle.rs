@@ -8,8 +8,8 @@ use super::*;
 
 #[subxt::module]
 pub trait Merkle: System + Balances {
-    /// The overarching group ID type
-    type GroupId: 'static
+    /// The overarching tree ID type
+    type TreeId: 'static
         + Encode
         + Decode
         + Parameter
@@ -24,16 +24,16 @@ pub trait Merkle: System + Balances {
 
 #[derive(Clone, Debug, Eq, Encode, PartialEq, subxt::Store)]
 pub struct CachedRootsStore<T: Merkle> {
-    #[store(returns = Vec<Data>)]
+    #[store(returns = Vec<ScalarData>)]
     block_number: T::BlockNumber,
-    group_id: T::GroupId,
+    tree_id: T::TreeId,
 }
 
 impl<T: Merkle> CachedRootsStore<T> {
-    pub fn new(block_number: T::BlockNumber, group_id: T::GroupId) -> Self {
+    pub fn new(block_number: T::BlockNumber, tree_id: T::TreeId) -> Self {
         Self {
             block_number,
-            group_id,
+            tree_id,
         }
     }
 }

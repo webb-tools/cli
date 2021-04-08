@@ -4,14 +4,16 @@ use std::str::FromStr;
 
 use bulletproofs::r1cs::Prover;
 use bulletproofs::{BulletproofGens, PedersenGens};
-use curve25519_dalek::scalar::Scalar;
-use curve25519_gadgets::fixed_deposit_tree::builder::{
+use bulletproofs_gadgets::fixed_deposit_tree::builder::{
     FixedDepositTree, FixedDepositTreeBuilder,
 };
+use bulletproofs_gadgets::poseidon::builder::Poseidon;
+use bulletproofs_gadgets::poseidon::{PoseidonBuilder, PoseidonSbox};
+use curve25519_dalek::scalar::Scalar;
 use merlin::Transcript;
 
 use crate::error::Error;
-use crate::pallet::{Commitment, Data};
+use crate::pallet::{Commitment, ScalarData};
 
 const NOTE_PREFIX: &str = "webb.mix";
 
@@ -32,14 +34,14 @@ pub struct Note {
     pub token_symbol: TokenSymbol,
     pub mixer_id: u32,
     pub block_number: Option<u32>,
-    r: Data,
-    nullifier: Data,
+    r: ScalarData,
+    nullifier: ScalarData,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ZkProof {
     pub comms: Vec<Commitment>,
-    pub nullifier_hash: Data,
+    pub nullifier_hash: ScalarData,
     pub proof_bytes: Vec<u8>,
     pub leaf_index_commitments: Vec<Commitment>,
     pub proof_commitments: Vec<Commitment>,
@@ -135,10 +137,14 @@ impl FromStr for Note {
         }
 
         let r = hex::decode(&note_val[..64]).map(|v| {
-            v.try_into().map_err(|_| Error::NotA32BytesArray).map(Data)
+            v.try_into()
+                .map_err(|_| Error::NotA32BytesArray)
+                .map(ScalarData)
         })??;
         let nullifier = hex::decode(&note_val[64..]).map(|v| {
-            v.try_into().map_err(|_| Error::NotA32BytesArray).map(Data)
+            v.try_into()
+                .map_err(|_| Error::NotA32BytesArray)
+                .map(ScalarData)
         })??;
         Ok(Note {
             prefix: NOTE_PREFIX.to_owned(),
@@ -161,22 +167,36 @@ impl Default for Mixer {
     fn default() -> Self { Self::new(0) }
 }
 
+/// Default hasher instance used to construct the tree
+pub fn default_hasher() -> Poseidon {
+    let width = 6;
+    // TODO: should be able to pass the number of generators
+    let bp_gens = BulletproofGens::new(16400, 1);
+    PoseidonBuilder::new(width)
+        .bulletproof_gens(bp_gens)
+        .sbox(PoseidonSbox::Exponentiation3)
+        .build()
+}
+
 impl Mixer {
     pub fn new(id: u32) -> Self {
         Self {
             id,
-            tree: FixedDepositTreeBuilder::new().depth(32).build(),
+            tree: FixedDepositTreeBuilder::new()
+                .hash_params(default_hasher())
+                .depth(32)
+                .build(),
         }
     }
 
-    pub fn add_leaves(&mut self, leaves: Vec<Data>) {
+    pub fn add_leaves(&mut self, leaves: Vec<ScalarData>) {
         let vals = leaves.into_iter().map(|v| v.0).collect();
         self.tree.tree.add_leaves(vals, None);
     }
 
-    pub fn root(&self) -> Data {
+    pub fn root(&self) -> ScalarData {
         let root = self.tree.tree.root;
-        Data(root.to_bytes())
+        ScalarData(root.to_bytes())
     }
 
     pub fn generate_note(&mut self, token_symbol: TokenSymbol) -> Note {
@@ -188,30 +208,38 @@ impl Mixer {
             token_symbol,
             mixer_id: self.id,
             block_number: None,
-            r: Data(r.to_bytes()),
-            nullifier: Data(nullifier.to_bytes()),
+            r: ScalarData(r.to_bytes()),
+            nullifier: ScalarData(nullifier.to_bytes()),
         }
     }
 
-    pub fn save_note(&mut self, note: Note) -> Data {
+    pub fn save_note(&mut self, note: Note) -> ScalarData {
         let (r, nullifier, nullifier_hash, leaf) =
             self.tree.leaf_data_from_bytes(note.r.0, note.nullifier.0);
         self.tree.add_secrets(leaf, r, nullifier, nullifier_hash);
-        Data(leaf.to_bytes())
+        ScalarData(leaf.to_bytes())
     }
 
-    pub fn generate_proof(&mut self, root: Data, leaf: Data) -> ZkProof {
+    pub fn generate_proof(
+        &mut self,
+        root: ScalarData,
+        leaf: ScalarData,
+    ) -> ZkProof {
         let pc_gens = PedersenGens::default();
-        let bp_gens = BulletproofGens::new(40960, 1);
+        let bp_gens = BulletproofGens::new(16400, 1);
         let mut prover_transcript = Transcript::new(b"zk_membership_proof");
         let prover = Prover::new(&pc_gens, &mut prover_transcript);
 
         let root = Scalar::from_bytes_mod_order(root.0);
         let leaf = Scalar::from_bytes_mod_order(leaf.0);
+        let recipient = Scalar::default();
+        let relayer = Scalar::default();
         let (
             proof_bytes,
             (comms, nullifier_hash, leaf_index_commitments, proof_commitments),
-        ) = self.tree.prove_zk(root, leaf, &bp_gens, prover);
+        ) = self
+            .tree
+            .prove_zk(root, leaf, recipient, relayer, &bp_gens, prover);
 
         let comms = comms
             .into_iter()
@@ -225,15 +253,15 @@ impl Mixer {
             .into_iter()
             .map(|v| Commitment(v.to_bytes()))
             .collect();
-        let nullifier_hash = Data(nullifier_hash.to_bytes());
+        let nullifier_hash = ScalarData(nullifier_hash.to_bytes());
         let proof_bytes = proof_bytes.to_bytes();
 
         ZkProof {
             comms,
-            leaf_index_commitments,
-            proof_commitments,
             nullifier_hash,
             proof_bytes,
+            leaf_index_commitments,
+            proof_commitments,
         }
     }
 }

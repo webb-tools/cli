@@ -1,10 +1,10 @@
 use subxt::balances::*;
 use subxt::extrinsic::*;
-use subxt::sp_core;
 use subxt::sp_runtime::generic::Header;
 use subxt::sp_runtime::traits::{BlakeTwo256, IdentifyAccount, Verify};
 use subxt::sp_runtime::{MultiSignature, OpaqueExtrinsic};
 use subxt::system::*;
+use subxt::{sp_core, EventTypeRegistry};
 
 use crate::pallet;
 
@@ -40,6 +40,37 @@ pub struct WebbRuntime;
 impl subxt::Runtime for WebbRuntime {
     type Extra = DefaultExtra<Self>;
     type Signature = Signature;
+
+    fn register_type_sizes(event_type_registry: &mut EventTypeRegistry<Self>) {
+        event_type_registry.with_system();
+        event_type_registry.with_balances();
+        subxt::register_default_type_sizes(event_type_registry);
+        event_type_registry.register_type_size::<Balance>("BalanceOf<T>");
+        event_type_registry
+            .register_type_size::<pallet::ScalarData>("ScalarData");
+        event_type_registry
+            .register_type_size::<pallet::Nullifier>("Nullifier");
+        event_type_registry
+            .register_type_size::<pallet::Commitment>("Commitment");
+        // ORML stuff
+        event_type_registry.register_type_size::<Balance>("T::Balance");
+        event_type_registry.register_type_size::<AccountId>("T::AccountId");
+        event_type_registry
+            .register_type_size::<pallet::CurrencyId>("T::CurrencyId");
+        event_type_registry
+            .register_type_size::<pallet::CurrencyId>("CurrencyIdOf<T>");
+        event_type_registry.register_type_size::<pallet::Amount>("Amount");
+        event_type_registry.register_type_size::<pallet::Amount>("AmountOf<T>");
+        event_type_registry
+            .register_type_size::<pallet::BlockLength>("BlockLength");
+        event_type_registry.register_type_size::<pallet::TreeId>("TreeId");
+        // EVM Stuff
+        event_type_registry.register_type_size::<ethereum_types::H160>("H160");
+        event_type_registry.register_type_size::<ethereum_types::H256>("H256");
+        event_type_registry.register_type_size::<ethereum_types::U256>("U256");
+        event_type_registry.register_type_size::<Vec<u8>>("Log");
+        event_type_registry.register_type_size::<i64>("ExitReason");
+    }
 }
 
 impl System for WebbRuntime {
@@ -60,13 +91,13 @@ impl Balances for WebbRuntime {
 
 impl pallet::mixer::Mixer for WebbRuntime {
     type Commitment = pallet::Commitment;
-    type Data = pallet::Data;
-    type GroupId = u32;
+    type CurrencyId = pallet::CurrencyId;
     type Nullifier = pallet::Nullifier;
+    type ScalarData = pallet::ScalarData;
 }
 
 impl pallet::merkle::Merkle for WebbRuntime {
-    type GroupId = u32;
+    type TreeId = pallet::TreeId;
 }
 
 #[cfg(all(test, feature = "integration-tests"))]
@@ -74,12 +105,12 @@ mod tests {
     use super::*;
     use crate::pallet::merkle::*;
     use crate::pallet::mixer::*;
-    use crate::pallet::Data;
+    use crate::pallet::ScalarData;
     use sp_keyring::AccountKeyring;
     use subxt::PairSigner;
 
-    type MixerGroups = MixerGroupsStore<WebbRuntime>;
-    type MixerGroupIds = MixerGroupIdsStore<WebbRuntime>;
+    type MixerTrees = MixerTreesStore<WebbRuntime>;
+    type MixerTreeIds = MixerTreeIdsStore<WebbRuntime>;
     type CachedRoots = CachedRootsStore<WebbRuntime>;
 
     async fn get_client() -> subxt::Client<WebbRuntime> {
@@ -93,16 +124,16 @@ mod tests {
     #[async_std::test]
     async fn get_all_mixers() {
         let client = get_client().await;
-        let mut iter = client.iter::<MixerGroups>(None).await.unwrap();
-        let mut groups = Vec::new();
+        let mut iter = client.iter::<MixerTrees>(None).await.unwrap();
+        let mut tress = Vec::new();
         while let Some((_, info)) = iter.next().await.unwrap() {
-            groups.push(info);
+            tress.push(info);
         }
 
-        assert!(!groups.is_empty());
+        assert!(!tress.is_empty());
 
         let ids = client
-            .fetch_or_default::<MixerGroupIds>(&MixerGroupIds::default(), None)
+            .fetch_or_default::<MixerTreeIds>(&MixerTreeIds::default(), None)
             .await
             .unwrap();
         assert!(!ids.is_empty());
@@ -112,8 +143,9 @@ mod tests {
     async fn deposit() {
         let client = get_client().await;
         let signer = PairSigner::new(AccountKeyring::Alice.pair());
-        let leaf = Data([1u8; 32]);
-        let result = client.deposit_and_watch(&signer, 3, vec![leaf]).await;
+        let leaf = ScalarData([1u8; 32]);
+        let result = client.deposit_and_watch(&signer, 0, vec![leaf]).await;
+        dbg!(&result);
         assert!(result.is_ok());
         let xt = result.unwrap();
         println!("Hash: {:?}", xt.block);

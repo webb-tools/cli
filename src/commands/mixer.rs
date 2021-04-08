@@ -5,6 +5,7 @@ use anyhow::Context;
 use async_trait::async_trait;
 use console::{style, Emoji};
 use indicatif::{ProgressBar, ProgressStyle};
+use jsonrpsee_types::jsonrpc::Params;
 use secrecy::SecretString;
 use structopt::StructOpt;
 use subxt::system::*;
@@ -12,6 +13,7 @@ use subxt::Signer;
 use webb_cli::mixer::{Mixer, Note, TokenSymbol};
 use webb_cli::pallet::merkle::*;
 use webb_cli::pallet::mixer::*;
+use webb_cli::pallet::ScalarData;
 use webb_cli::runtime::WebbRuntime;
 
 use crate::context::ExecutionContext;
@@ -147,7 +149,7 @@ pub struct GenerateNote {
 #[async_trait]
 impl super::CommandExec for GenerateNote {
     async fn exec(self, context: &mut ExecutionContext) -> anyhow::Result<()> {
-        type MixerGroupIds = MixerGroupIdsStore<WebbRuntime>;
+        type MixerTreeIds = MixerTreeIdsStore<WebbRuntime>;
 
         let mut term = console::Term::stdout();
         let theme = dialoguer::theme::ColorfulTheme::default();
@@ -164,7 +166,7 @@ impl super::CommandExec for GenerateNote {
         pb.set_prefix("[2/3]");
         pb.set_message("Getting Mixer Groups ..");
         let mixer_group_ids = client
-            .fetch_or_default(&MixerGroupIds::default(), None)
+            .fetch_or_default(&MixerTreeIds::default(), None)
             .await?;
         pb.finish_and_clear();
         let mixer_group_id = if let Some(val) = self.group {
@@ -233,8 +235,8 @@ pub struct ForgetNote {}
 
 #[async_trait]
 impl super::CommandExec for ForgetNote {
-    async fn exec(self, context: &mut ExecutionContext) -> anyhow::Result<()> {
-        todo!()
+    async fn exec(self, _context: &mut ExecutionContext) -> anyhow::Result<()> {
+        todo!("Forget Note")
     }
 }
 
@@ -361,7 +363,7 @@ pub struct WithdrawAsset {
 #[async_trait]
 impl super::CommandExec for WithdrawAsset {
     async fn exec(self, context: &mut ExecutionContext) -> anyhow::Result<()> {
-        type MixerGroups = MixerGroupsStore<WebbRuntime>;
+        type MixerTrees = MixerTreesStore<WebbRuntime>;
         type CachedRoots = CachedRootsStore<WebbRuntime>;
 
         let mut term = console::Term::stdout();
@@ -421,11 +423,23 @@ impl super::CommandExec for WithdrawAsset {
         let client = context.client().await?;
         pb.set_prefix("[4/6]");
         pb.set_message(&format!("Getting Mixer #{} leaves", note.mixer_id));
-        let mixer_info = client
-            .fetch(&MixerGroups::new(note.mixer_id), None)
+        client
+            .fetch(&MixerTrees::new(note.mixer_id), None)
             .await?
             .context("mixer info not found!")?;
-        mixer.add_leaves(mixer_info.leaves);
+        let rpc_client = context.rpc_client().await?;
+        let leaves: Vec<[u8; 32]> = rpc_client
+            .request(
+                "merkle_treeLeaves",
+                Params::Array(vec![
+                    note.mixer_id.into(),
+                    0u32.into(),   // from
+                    500u32.into(), // to
+                ]),
+            )
+            .await?;
+        dbg!(&leaves, leaf);
+        mixer.add_leaves(leaves.into_iter().map(ScalarData).collect());
         let recent_hash = client.block_hash(None).await?;
         let recent = client
             .block(recent_hash)
@@ -447,14 +461,18 @@ impl super::CommandExec for WithdrawAsset {
         let xt = client
             .withdraw_and_watch(
                 &signer,
-                note.mixer_id,
-                recent.block.header.number,
-                root,
-                zkproof.comms,
-                zkproof.nullifier_hash,
-                zkproof.proof_bytes,
-                zkproof.leaf_index_commitments,
-                zkproof.proof_commitments,
+                WithdrawProof {
+                    mixer_id: note.mixer_id,
+                    proof_commitments: zkproof.proof_commitments,
+                    leaf_index_commitments: zkproof.leaf_index_commitments,
+                    proof_bytes: zkproof.proof_bytes,
+                    nullifier_hash: zkproof.nullifier_hash,
+                    comms: zkproof.comms,
+                    relayer: Some(signer.account_id().clone()),
+                    recipient: Some(signer.account_id().clone()),
+                    cached_root: root,
+                    cached_block: recent.block.header.number,
+                },
             )
             .await?;
         context.forget_note(note.uuid).context("remove old note")?;
