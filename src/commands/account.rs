@@ -182,7 +182,7 @@ impl super::CommandExec for GenerateAccount {
 
 #[async_trait]
 impl super::CommandExec for ForgetAccount {
-    async fn exec(self, context: &mut ExecutionContext) -> anyhow::Result<()> {
+    async fn exec(self, _context: &mut ExecutionContext) -> anyhow::Result<()> {
         todo!("forget account")
     }
 }

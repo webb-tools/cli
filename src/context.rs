@@ -1,12 +1,14 @@
 use std::path::PathBuf;
+use std::sync::Arc;
 
 use anyhow::{Context, Result};
 use bip39::Mnemonic;
 use directories_next::ProjectDirs;
+use jsonrpsee_ws_client::{WsClient, WsConfig};
 use secrecy::SecretString;
 use subxt::sp_core::sr25519::Pair as Sr25519Pair;
 use subxt::sp_core::Pair;
-use subxt::{Client, PairSigner};
+use subxt::{Client, PairSigner, RpcClient};
 use webb_cli::account;
 use webb_cli::keystore::PublicFor;
 use webb_cli::mixer::{Mixer, Note, TokenSymbol};
@@ -83,6 +85,12 @@ impl ExecutionContext {
             .build()
             .await?;
         Ok(client)
+    }
+
+    pub async fn rpc_client(&self) -> Result<RpcClient> {
+        let mut config = WsConfig::with_url(self.rpc_url.as_str());
+        config.max_notifs_per_subscription = 4096;
+        Ok(RpcClient::WebSocket(Arc::new(WsClient::new(config).await?)))
     }
 
     pub fn has_secret(&self) -> bool { self.db.has_secret() }

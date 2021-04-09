@@ -1,6 +1,6 @@
 [package]
 name = "webb-cli"
-version = "0.1.0"
+version = "0.1.0-beta.2"
 authors = [
    "Webb Developers <drew@webb.tools>",
    "Shady Khalifa <shekohex@gmail.com>"
@@ -13,23 +13,30 @@ name = "webb"
 path = "src/main.rs"
 required-features = ["cli"]
 
+[[bench]]
+name = "mixer"
+harness = false
+
 [dependencies]
 async-std = "1.8"
 async-trait = "0.1"
 log = "0.4"
-subxt = { version = "0.14", package = "substrate-subxt" }
+subxt = { version = "0.15", package = "substrate-subxt" }
+jsonrpsee-types = "=0.2.0-alpha.3"
+jsonrpsee-ws-client = "=0.2.0-alpha.3"
 thiserror = "1.0"
 zeroize = "^1"
 tiny-bip39 = "0.8"
 uuid = { version = "0.8", features = ["v4"] }
-codec = { package = "parity-scale-codec", version = "1.3.6", features = ["derive", "full"] }
+codec = { package = "parity-scale-codec", version = "2.0.0", features = ["derive", "full"] }
+ethereum-types = { version = "0.11", default-features = false, features = ["codec"] }
 rand = "0.8"
 sha2 = "0.9"
 hex = "0.4"
 url = "2.2"
 
 # Pallets
-frame-support = "2.0.1"
+frame-support = "3.0.0"
 
 # CLI
 anyhow = { version = "1.0", optional = true }
@@ -44,22 +51,24 @@ chacha = { version = "0.7", optional = true, package = "chacha20poly1305" }
 console = { version = "0.13", optional = true }
 indicatif = { version = "0.15", optional = true }
 dialoguer = { version = "0.7", optional = true }
-
+serde_json = { version = "1", optional = true }
 # Anon
-curve25519-dalek = "3.0.0"
 merlin = "2.0.0"
 
-[dependencies.curve25519-gadgets]
-version = "2.0.0"
-git = "https://github.com/webb-tools/anon"
-rev = "5c530cf2"
+[dependencies.curve25519-dalek]
+version = "3.0.0"
+default-features = false
+features = ["u64_backend", "alloc"]
 
 [dependencies.bulletproofs]
-branch = "main"
 version = "2.0.0"
-git = "https://github.com/edgeware-builders/bulletproofs"
+package = "webb-bulletproofs"
 default-features = false
 features = ["yoloproofs"]
+
+[dependencies.bulletproofs-gadgets]
+version = "2.0.0"
+default-features = false
 
 [features]
 default = []
@@ -77,10 +86,11 @@ cli = [
    "console",
    "indicatif",
    "dialoguer",
+   "serde_json"
 ]
 integration-tests = []
 
 [dev-dependencies]
 async-std = { version = "1.8", features = ["attributes"] }
-sp-keyring = "2.0.1"
-
+sp-keyring = "3.0.0"
+criterion = "0.3"
