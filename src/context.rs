@@ -326,3 +326,37 @@ impl ExecutionContext {
         }
     }
 }
+
+#[derive(Debug, Clone)]
+pub struct SystemProperties {
+    /// The address format
+    pub ss58_format: u8,
+    /// The number of digits after the decimal point in the native token
+    pub token_decimals: u8,
+    /// The symbol of the native token
+    pub token_symbol: String,
+}
+
+impl Default for SystemProperties {
+    fn default() -> Self {
+        Self {
+            ss58_format: 100,
+            token_decimals: 12,
+            token_symbol: String::from("Unit"),
+        }
+    }
+}
+
+impl<'a> From<&'a subxt::SystemProperties> for SystemProperties {
+    fn from(v: &'a subxt::SystemProperties) -> Self {
+        if subxt::SystemProperties::default().eq(v) {
+            Self::default()
+        } else {
+            Self {
+                ss58_format: v.ss58_format,
+                token_decimals: v.token_decimals,
+                token_symbol: v.token_symbol.clone(),
+            }
+        }
+    }
+}

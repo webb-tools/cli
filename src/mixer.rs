@@ -45,6 +45,8 @@ pub struct ZkProof {
     pub proof_bytes: Vec<u8>,
     pub leaf_index_commitments: Vec<Commitment>,
     pub proof_commitments: Vec<Commitment>,
+    pub recipient: ScalarData,
+    pub relayer: ScalarData,
 }
 
 impl fmt::Display for TokenSymbol {
@@ -255,6 +257,8 @@ impl Mixer {
             .collect();
         let nullifier_hash = ScalarData(nullifier_hash.to_bytes());
         let proof_bytes = proof_bytes.to_bytes();
+        let recipient = ScalarData(recipient.to_bytes());
+        let relayer = ScalarData(relayer.to_bytes());
 
         ZkProof {
             comms,
@@ -262,6 +266,8 @@ impl Mixer {
             proof_bytes,
             leaf_index_commitments,
             proof_commitments,
+            recipient,
+            relayer,
         }
     }
 }

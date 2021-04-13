@@ -8,15 +8,16 @@ use indicatif::{ProgressBar, ProgressStyle};
 use jsonrpsee_types::jsonrpc::Params;
 use secrecy::SecretString;
 use structopt::StructOpt;
+use subxt::sp_core::crypto::AccountId32;
 use subxt::system::*;
-use subxt::Signer;
+use subxt::{RpcClient, Signer};
 use webb_cli::mixer::{Mixer, Note, TokenSymbol};
 use webb_cli::pallet::merkle::*;
 use webb_cli::pallet::mixer::*;
 use webb_cli::pallet::ScalarData;
 use webb_cli::runtime::WebbRuntime;
 
-use crate::context::ExecutionContext;
+use crate::context::{ExecutionContext, SystemProperties};
 use crate::ext::OptionPromptExt;
 
 /// Webb Crypto Mixer.
@@ -325,7 +326,9 @@ impl super::CommandExec for DepositAsset {
         let hash = signed_block.block.header.hash();
         let account_id = signer.account_id();
         let account = client.account(&account_id, None).await?;
-        let balance = account.data.free;
+        let props = SystemProperties::from(client.properties());
+        let balance =
+            account.data.free / 10u128.pow(props.token_decimals as u32);
         writeln!(term, "{} Note Deposited Successfully!", Emoji("🎉", "※"))?;
         writeln!(
             term,
@@ -336,8 +339,9 @@ impl super::CommandExec for DepositAsset {
         writeln!(term)?;
         writeln!(
             term,
-            "Your Current Free Balance: {}",
-            style(balance).green().bold()
+            "Your Current Free Balance: {} {}",
+            style(balance).green().bold(),
+            props.token_symbol,
         )?;
         writeln!(term)?;
         writeln!(term, "Next! to do a withdraw:")?;
@@ -428,18 +432,8 @@ impl super::CommandExec for WithdrawAsset {
             .await?
             .context("mixer info not found!")?;
         let rpc_client = context.rpc_client().await?;
-        let leaves: Vec<[u8; 32]> = rpc_client
-            .request(
-                "merkle_treeLeaves",
-                Params::Array(vec![
-                    note.mixer_id.into(),
-                    0u32.into(),   // from
-                    500u32.into(), // to
-                ]),
-            )
-            .await?;
-        dbg!(&leaves, leaf);
-        mixer.add_leaves(leaves.into_iter().map(ScalarData).collect());
+        let leaves = fetch_tree_leaves(&rpc_client, note.mixer_id).await?;
+        mixer.add_leaves(leaves);
         let recent_hash = client.block_hash(None).await?;
         let recent = client
             .block(recent_hash)
@@ -468,8 +462,8 @@ impl super::CommandExec for WithdrawAsset {
                     proof_bytes: zkproof.proof_bytes,
                     nullifier_hash: zkproof.nullifier_hash,
                     comms: zkproof.comms,
-                    relayer: Some(signer.account_id().clone()),
-                    recipient: Some(signer.account_id().clone()),
+                    relayer: Some(AccountId32::new(zkproof.relayer.0)),
+                    recipient: Some(AccountId32::new(zkproof.recipient.0)),
                     cached_root: root,
                     cached_block: recent.block.header.number,
                 },
@@ -485,7 +479,9 @@ impl super::CommandExec for WithdrawAsset {
         let hash = signed_block.block.header.hash();
         let account_id = signer.account_id();
         let account = client.account(&account_id, None).await?;
-        let balance = account.data.free;
+        let props = SystemProperties::from(client.properties());
+        let balance =
+            account.data.free / 10u128.pow(props.token_decimals as u32);
         writeln!(term, "{} Note Withdrawn Successfully!", Emoji("🎉", "※"))?;
         writeln!(
             term,
@@ -496,9 +492,36 @@ impl super::CommandExec for WithdrawAsset {
         writeln!(term)?;
         writeln!(
             term,
-            "Your Current Free Balance: {}",
-            style(balance).green().bold()
+            "Your Current Free Balance: {} {}",
+            style(balance).green().bold(),
+            props.token_symbol,
         )?;
         Ok(())
     }
+}
+
+/// fetch all the tree leaves in batches.
+async fn fetch_tree_leaves(
+    rpc_client: &RpcClient,
+    tree_id: u32,
+) -> anyhow::Result<Vec<ScalarData>> {
+    let mut from: u32 = 0;
+    let mut to: u32 = 511;
+    let mut total_leaves = Vec::new();
+    loop {
+        let leaves: Vec<[u8; 32]> = rpc_client
+            .request(
+                "merkle_treeLeaves",
+                Params::Array(vec![tree_id.into(), from.into(), to.into()]),
+            )
+            .await?;
+        if leaves.is_empty() {
+            break;
+        } else {
+            total_leaves.extend(leaves.into_iter().map(ScalarData));
+        }
+        from = to;
+        to += 511;
+    }
+    Ok(total_leaves)
 }
