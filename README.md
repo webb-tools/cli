@@ -34,7 +34,7 @@ $ iwr https://git.io/get-webb.ps1 -useb | iex
 
 ## Safety
 
-This crate uses `#![deny(unsafe_code)]` to ensure everything implemented in
+This crate uses `#![deny(unsafe_code)]` to ensure everything is implemented in
 100% Safe Rust.
 
 ## Contributing
