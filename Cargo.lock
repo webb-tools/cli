@@ -1917,6 +1917,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "matchers"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8263075bb86c5a1b1427b5ae862e8889656f126e9f77c484496e8b47cf5c5558"
+dependencies = [
+ "regex-automata",
+]
+
+[[package]]
 name = "matches"
 version = "0.1.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3869,7 +3878,7 @@ dependencies = [
  "ansi_term 0.12.1",
  "chrono",
  "lazy_static",
- "matchers",
+ "matchers 0.0.1",
  "regex",
  "serde",
  "serde_json",
@@ -3889,9 +3898,13 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "77be66445c4eeebb934a7340f227bfe7b338173d3f8c00a60a5a58005c9faecf"
 dependencies = [
  "ansi_term 0.12.1",
+ "lazy_static",
+ "matchers 0.1.0",
+ "regex",
  "sharded-slab",
  "smallvec",
  "thread_local",
+ "tracing",
  "tracing-core",
  "tracing-log",
 ]
@@ -3933,6 +3946,17 @@ dependencies = [
  "cfg-if",
  "rand 0.8.3",
  "static_assertions",
+]
+
+[[package]]
+name = "typed-builder"
+version = "0.9.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a46ee5bd706ff79131be9c94e7edcb82b703c487766a114434e5790361cf08c5"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn",
 ]
 
 [[package]]
@@ -4174,7 +4198,7 @@ dependencies = [
 [[package]]
 name = "webb"
 version = "0.2.6"
-source = "git+https://github.com/webb-tools/webb-rs.git?rev=17a4e48#17a4e48cf0094ca01d89deb3a460c2ea8e3e35c2"
+source = "git+https://github.com/webb-tools/webb-rs.git?rev=4037988#4037988730f64d3ddb842e32b55ca7aae141fb42"
 dependencies = [
  "async-trait",
  "hex",
@@ -4213,6 +4237,7 @@ dependencies = [
  "prost",
  "rand 0.8.3",
  "secrecy",
+ "serde",
  "serde_json",
  "sha2 0.10.1",
  "sled",
@@ -4223,6 +4248,7 @@ dependencies = [
  "tokio",
  "tracing",
  "tracing-subscriber 0.3.6",
+ "typed-builder",
  "url",
  "uuid",
  "webb",
@@ -4233,7 +4259,7 @@ dependencies = [
 [[package]]
 name = "webb-pedersen-hash"
 version = "0.1.0"
-source = "git+https://github.com/webb-tools/webb-rs.git?rev=17a4e48#17a4e48cf0094ca01d89deb3a460c2ea8e3e35c2"
+source = "git+https://github.com/webb-tools/webb-rs.git?rev=4037988#4037988730f64d3ddb842e32b55ca7aae141fb42"
 dependencies = [
  "ark-crypto-primitives",
  "ark-ed-on-bn254",

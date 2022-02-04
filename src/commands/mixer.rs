@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::io::Write;
 use std::str::FromStr;
 
@@ -132,21 +133,19 @@ pub struct GenerateNote {
     /// an easy to remember the Note.
     #[structopt(short, long)]
     alias: Option<String>,
-    /// the mixer group that this note will be generated for.
+    /// the mixer size that this note will be generated for.
     ///
     /// you can't change this later when you try to do a deposit
     /// using this note.
     ///
-    /// leave empty to prompt with the available mixer groups.
+    /// leave empty to prompt with the available mixer sizes.
     #[structopt(short, long)]
-    group: Option<u32>,
+    size: Option<u128>,
 }
 
 #[async_trait]
 impl super::CommandExec for GenerateNote {
     async fn exec(self, context: &mut ExecutionContext) -> anyhow::Result<()> {
-        type MixerTreeIds = MixerTreeIdsStore<WebbRuntime>;
-
         let mut term = console::Term::stdout();
         let theme = dialoguer::theme::ColorfulTheme::default();
         let alias = self.alias.unwrap_or_prompt("Note Alias", &theme)?;
@@ -158,33 +157,61 @@ impl super::CommandExec for GenerateNote {
         pb.set_style(pb_style.clone());
         pb.set_prefix("[1/3]");
         pb.set_message("Connecting ..");
-        let client = context.client().await?;
+        let api = context.client().await?;
         pb.set_prefix("[2/3]");
-        pb.set_message("Getting Mixer Groups ..");
-        let mixer_group_ids = client
-            .fetch_or_default(&MixerTreeIds::default(), None)
-            .await?;
+        pb.set_message("Fetching Mixers and assets ..");
+        let mixers_iter = api.storage().mixer_bn254().mixers_iter(None).await?;
+        let mut mixers = Vec::new();
+        let mut assets = HashMap::new();
+        while let Some((_, mixer)) = mixers_iter.next().await? {
+            mixers.push(mixer);
+            let asset = api
+                .storage()
+                .asset_registry()
+                .assets(mixer.asset, None)
+                .await?
+                .context(format!(
+                    "failed to fetch asset #{} information",
+                    mixer.asset
+                ))?;
+            assets.insert(mixer.asset, asset);
+        }
         pb.finish_and_clear();
-        let mixer_group_id = if let Some(val) = self.group {
-            if mixer_group_ids.contains(&val) {
-                val
-            } else {
-                writeln!(term, "Available groups: {:?}", mixer_group_ids)?;
-                anyhow::bail!("Invalid Mixer group!");
+        let mixer = if let Some(val) = self.size {
+            // find the mixer with the size.
+            let size = val.into();
+            let maybe_mixer = mixers
+                .iter()
+                .find(|mixer| mixer.deposit_size == size)
+                .cloned();
+            match maybe_mixer {
+                Some(v) => v,
+                None => {
+                    let sizes = mixers
+                        .iter()
+                        .map(|mixer| mixer.deposit_size)
+                        .collect::<Vec<_>>();
+                    writeln!(term, "Available sizes: {:?}", sizes)?;
+                    anyhow::bail!("Invalid Mixer size!");
+                },
             }
         } else {
-            let f = |i| format!("Group #{} with 1,000{} EDG", i, "0".repeat(i));
-            let items: Vec<_> = mixer_group_ids
+            let f = |(size, asset)| format!("Mixer {size} {asset}");
+            let items: Vec<_> = mixers
                 .iter()
-                .cloned()
-                .map(|v| v as usize)
+                .map(|v| {
+                    (
+                        v.deposit_size,
+                        String::from_utf8_lossy(&assets[&v.asset].name.0),
+                    )
+                })
                 .map(f)
                 .collect();
             let i = dialoguer::Select::with_theme(&theme)
-                .with_prompt("Select Mixer Group")
+                .with_prompt("Select Your Mixer")
                 .items(&items)
                 .interact_on(&term)?;
-            mixer_group_ids[i]
+            mixers[i]
         };
         if !context.has_secret() {
             let password = Option::<SecretString>::None
@@ -305,7 +332,7 @@ impl super::CommandExec for DepositAsset {
         let leaf = mixer.save_note(secret_note);
         pb.set_prefix("[3/4]");
         pb.set_message("Connecting to the network...");
-        let client = context.client().await?;
+        let api = context.client().await?;
         pb.set_prefix("[4/4]");
         pb.set_message("Doing the deposit...");
         let xt = client

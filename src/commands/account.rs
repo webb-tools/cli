@@ -6,7 +6,7 @@ use console::{style, Emoji};
 use dialoguer::theme::ColorfulTheme;
 use secrecy::SecretString;
 use structopt::StructOpt;
-use subxt::sp_core::crypto::{Ss58AddressFormat, Ss58Codec};
+use subxt::sp_core::crypto::{Ss58AddressFormatRegistry, Ss58Codec};
 use subxt::sp_runtime::traits::IdentifyAccount;
 use webb::substrate::subxt;
 
@@ -120,9 +120,9 @@ impl super::CommandExec for ImportAccount {
             context.set_secret(password);
         }
         let address = context.import_account(alias.clone(), paper_key)?;
-        let account = address
-            .into_account()
-            .to_ss58check_with_version(Ss58AddressFormat::SubstrateAccount);
+        let account = address.into_account().to_ss58check_with_version(
+            Ss58AddressFormatRegistry::SubstrateAccount.into(),
+        );
         writeln!(term, "{} Account Imported!", Emoji("🎉", "※"))?;
         writeln!(
             term,

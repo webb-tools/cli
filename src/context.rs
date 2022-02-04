@@ -1,5 +1,4 @@
 use std::path::PathBuf;
-use std::sync::Arc;
 
 use anyhow::{Context, Result};
 use bip39::Mnemonic;
@@ -7,18 +6,17 @@ use directories_next::ProjectDirs;
 use secrecy::SecretString;
 use subxt::sp_core::sr25519::Pair as Sr25519Pair;
 use subxt::sp_core::Pair;
-use subxt::{Client, PairSigner, RpcClient};
+use subxt::PairSigner;
 use webb::substrate::protocol_substrate_runtime::api::RuntimeApi;
 use webb::substrate::subxt;
-use webb_cli::account;
 use webb_cli::keystore::PublicFor;
-use webb_cli::mixer::{Mixer, Note, TokenSymbol};
+use webb_cli::{account, note};
 
 use crate::database::SledDatastore;
 use crate::raw::{AccountRaw, AccountsIds, NoteRaw, NotesIds};
 
 type WebbRuntimeApi =
-    RuntimeApi<subxt::DefaultConfig, subxt::DefaultExtra<subxt::Config>>;
+    RuntimeApi<subxt::DefaultConfig, subxt::DefaultExtra<subxt::DefaultConfig>>;
 /// Commands Execution Context.
 ///
 /// Holds the state needed for all commands.
@@ -225,7 +223,11 @@ impl ExecutionContext {
         Ok(())
     }
 
-    pub fn import_note(&mut self, alias: String, note: Note) -> Result<u32> {
+    pub fn import_note(
+        &mut self,
+        alias: String,
+        note: note::Note,
+    ) -> Result<u32> {
         let uuid = uuid::Uuid::new_v4();
         let raw = NoteRaw {
             alias,
@@ -258,7 +260,7 @@ impl ExecutionContext {
         Ok(raw.mixer_id)
     }
 
-    pub fn decrypt_note(&self, uuid: String) -> Result<Note> {
+    pub fn decrypt_note(&self, uuid: String) -> Result<note::Note> {
         let mut key = uuid;
         key.push_str("_secret");
         let buf = self

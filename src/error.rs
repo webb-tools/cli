@@ -32,6 +32,10 @@ pub enum Error {
     InvalidNoteFormat,
     #[error("Invalid Chain Id in your note.")]
     InvalidChainId,
+    #[error("Invalid Note Secrets (must be 64 bytes).")]
+    InvalidNoteSecrets,
     #[error("not A 32 bytes array")]
     NotA32BytesArray,
+    #[error("Failed to generate secure secrets.")]
+    FailedToGenerateSecrets,
 }

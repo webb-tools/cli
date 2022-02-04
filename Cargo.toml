@@ -5,7 +5,7 @@ authors = [
    "Webb Developers <drew@webb.tools>",
    "Shady Khalifa <shekohex@gmail.com>",
 ]
-edition = "2018"
+edition = "2021"
 
 
 [[bin]]
@@ -23,11 +23,13 @@ tracing = "0.1"
 thiserror = "1.0"
 zeroize = "^1"
 tiny-bip39 = "0.8"
+serde = { version = "1.0", features = ["derive"] }
 uuid = { version = "0.8", features = ["v4"] }
 rand = "0.8"
 sha2 = "0.10"
 hex = "0.4"
 url = "2.2"
+typed-builder = "0.9.1"
 
 # Arkworks
 ark-ff = { version = "^0.3.0", default-features = true }
@@ -52,11 +54,13 @@ arkworks-utils = { version = "0.4.18", default-features = false }
 # Runtime
 tokio = { version = "^1", features = ["full"] }
 # SDK
-webb = { git = "https://github.com/webb-tools/webb-rs.git", rev = "17a4e48", default-features = false }
-webb-pedersen-hash = { git = "https://github.com/webb-tools/webb-rs.git", rev = "17a4e48", default-features = false }
+webb = { git = "https://github.com/webb-tools/webb-rs.git", rev = "4037988", default-features = false }
+webb-pedersen-hash = { git = "https://github.com/webb-tools/webb-rs.git", rev = "4037988", default-features = false }
 # CLI
 anyhow = { version = "1.0", optional = true }
-tracing-subscriber = { version = "0.3", optional = true }
+tracing-subscriber = { version = "0.3", optional = true, features = [
+   "env-filter",
+] }
 structopt = { version = "0.3", optional = true, features = ["paw"] }
 paw = { version = "1.0", optional = true }
 sled = { version = "0.34", optional = true }

@@ -2,20 +2,12 @@ use core::fmt;
 use std::str::FromStr;
 
 use arkworks_utils::utils::common::Curve as ArkCurve;
+use typed_builder::TypedBuilder;
 
 use crate::error::Error;
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum NoteVersion {
     V1,
-}
-
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum Chain {
-    Edgeware,
-    Ganache,
-    Beresheet,
-    HarmonyTestShard1,
-    Rinkeby,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -160,22 +152,31 @@ impl From<Curve> for ArkCurve {
     }
 }
 
-#[derive(Debug, Eq, PartialEq, Clone)]
+#[derive(Debug, Eq, PartialEq, Clone, TypedBuilder)]
 pub struct Note {
     pub prefix: NotePrefix,
+    #[builder(default = NoteVersion::V1)]
     pub version: NoteVersion,
+    #[builder(setter(into))]
     pub target_chain_id: u32,
+    #[builder(setter(into))]
     pub source_chain_id: u32,
-    /// zkp related items
+    #[builder(default = Backend::Circom)]
     pub backend: Backend,
+    #[builder(default = HashFunction::Poseidon)]
     pub hash_function: HashFunction,
+    #[builder(default = Curve::Bn254)]
     pub curve: Curve,
-    pub exponentiation: i8,
+    #[builder(default = 5)]
+    pub exponentiation: u8,
+    #[builder(default = 5)]
     pub width: usize,
-    /// mixer related items
-    pub secret: Vec<u8>,
+    pub secret: [u8; 64],
+    #[builder(setter(into))]
     pub token_symbol: String,
+    #[builder(setter(into))]
     pub amount: String,
+    #[builder(setter(into))]
     pub denomination: u8,
 }
 
@@ -239,7 +240,9 @@ impl FromStr for Note {
         let width = parts[11].parse().unwrap();
 
         let note_val = parts[12];
-        let secret = hex::decode(&note_val.replace("0x", ""))?;
+        let secret = hex::decode(&note_val.replace("0x", ""))?
+            .try_into()
+            .map_err(|_| Error::InvalidNoteSecrets)?;
 
         Ok(Note {
             prefix,
@@ -256,5 +259,32 @@ impl FromStr for Note {
             width,
             secret,
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn should_generate_and_parse_note_correctly() {
+        let note = Note::builder()
+            .prefix(NotePrefix::Mixer)
+            .version(NoteVersion::V1)
+            .target_chain_id(1u32)
+            .source_chain_id(2u32)
+            .backend(Backend::Circom)
+            .hash_function(HashFunction::Poseidon)
+            .curve(Curve::Bn254)
+            .exponentiation(5)
+            .width(5)
+            .token_symbol("TEST")
+            .amount("1")
+            .denomination(1)
+            .secret([0; 64])
+            .build();
+        let note_str = note.to_string();
+        let parsed_note = note_str.parse::<Note>().unwrap();
+        assert_eq!(note, parsed_note);
     }
 }
