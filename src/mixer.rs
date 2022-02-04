@@ -2,18 +2,7 @@ use std::convert::TryInto;
 use std::fmt;
 use std::str::FromStr;
 
-use bulletproofs::r1cs::Prover;
-use bulletproofs::{BulletproofGens, PedersenGens};
-use bulletproofs_gadgets::fixed_deposit_tree::builder::{
-    FixedDepositTree, FixedDepositTreeBuilder,
-};
-use bulletproofs_gadgets::poseidon::builder::Poseidon;
-use bulletproofs_gadgets::poseidon::{PoseidonBuilder, PoseidonSbox};
-use curve25519_dalek::scalar::Scalar;
-use merlin::Transcript;
-
 use crate::error::Error;
-use crate::pallet::{Commitment, ScalarData};
 
 const NOTE_PREFIX: &str = "webb.mix";
 

@@ -4,19 +4,21 @@ use std::sync::Arc;
 use anyhow::{Context, Result};
 use bip39::Mnemonic;
 use directories_next::ProjectDirs;
-use jsonrpsee_ws_client::{WsClient, WsConfig};
 use secrecy::SecretString;
 use subxt::sp_core::sr25519::Pair as Sr25519Pair;
 use subxt::sp_core::Pair;
 use subxt::{Client, PairSigner, RpcClient};
+use webb::substrate::protocol_substrate_runtime::api::RuntimeApi;
+use webb::substrate::subxt;
 use webb_cli::account;
 use webb_cli::keystore::PublicFor;
 use webb_cli::mixer::{Mixer, Note, TokenSymbol};
-use webb_cli::runtime::WebbRuntime;
 
 use crate::database::SledDatastore;
 use crate::raw::{AccountRaw, AccountsIds, NoteRaw, NotesIds};
 
+type WebbRuntimeApi =
+    RuntimeApi<subxt::DefaultConfig, subxt::DefaultExtra<subxt::Config>>;
 /// Commands Execution Context.
 ///
 /// Holds the state needed for all commands.
@@ -58,7 +60,15 @@ impl ExecutionContext {
             .context("must have a default account")
     }
 
-    pub fn signer(&self) -> Result<PairSigner<WebbRuntime, Sr25519Pair>> {
+    pub fn signer(
+        &self,
+    ) -> Result<
+        PairSigner<
+            subxt::DefaultConfig,
+            subxt::DefaultExtra<subxt::DefaultConfig>,
+            Sr25519Pair,
+        >,
+    > {
         let default_account = self.default_account()?;
         let mut seed_key = default_account.uuid.clone();
         seed_key.push_str("_seed");
@@ -79,18 +89,12 @@ impl ExecutionContext {
 
     pub fn notes(&self) -> &[NoteRaw] { self.notes.as_slice() }
 
-    pub async fn client(&self) -> Result<Client<WebbRuntime>> {
+    pub async fn client(&self) -> Result<WebbRuntimeApi> {
         let client = subxt::ClientBuilder::new()
             .set_url(self.rpc_url.as_str())
             .build()
             .await?;
-        Ok(client)
-    }
-
-    pub async fn rpc_client(&self) -> Result<RpcClient> {
-        let mut config = WsConfig::with_url(self.rpc_url.as_str());
-        config.max_notifs_per_subscription = 4096;
-        Ok(RpcClient::WebSocket(Arc::new(WsClient::new(config).await?)))
+        Ok(client.to_runtime_api())
     }
 
     pub fn has_secret(&self) -> bool { self.db.has_secret() }
@@ -327,7 +331,8 @@ impl ExecutionContext {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct SystemProperties {
     /// The address format
     pub ss58_format: u8,
@@ -340,23 +345,22 @@ pub struct SystemProperties {
 impl Default for SystemProperties {
     fn default() -> Self {
         Self {
-            ss58_format: 100,
+            ss58_format: 42,
             token_decimals: 12,
             token_symbol: String::from("Unit"),
         }
     }
 }
 
-impl<'a> From<&'a subxt::SystemProperties> for SystemProperties {
-    fn from(v: &'a subxt::SystemProperties) -> Self {
-        if subxt::SystemProperties::default().eq(v) {
-            Self::default()
-        } else {
-            Self {
-                ss58_format: v.ss58_format,
-                token_decimals: v.token_decimals,
-                token_symbol: v.token_symbol.clone(),
-            }
+impl From<subxt::SystemProperties> for SystemProperties {
+    fn from(v: subxt::SystemProperties) -> Self {
+        let json = serde_json::Value::Object(v);
+        match serde_json::from_value(json) {
+            Ok(v) => v,
+            Err(e) => {
+                tracing::warn!("Failed to deserialize SystemProperties: {}", e);
+                Self::default()
+            },
         }
     }
 }

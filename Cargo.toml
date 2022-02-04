@@ -3,7 +3,7 @@ name = "webb-cli"
 version = "0.1.0-beta.2"
 authors = [
    "Webb Developers <drew@webb.tools>",
-   "Shady Khalifa <shekohex@gmail.com>"
+   "Shady Khalifa <shekohex@gmail.com>",
 ]
 edition = "2018"
 
@@ -18,66 +18,65 @@ name = "mixer"
 harness = false
 
 [dependencies]
-async-std = "1.8"
 async-trait = "0.1"
-log = "0.4"
-subxt = { version = "0.15", package = "substrate-subxt" }
-jsonrpsee-types = "=0.2.0-alpha.3"
-jsonrpsee-ws-client = "=0.2.0-alpha.3"
+tracing = "0.1"
 thiserror = "1.0"
 zeroize = "^1"
 tiny-bip39 = "0.8"
 uuid = { version = "0.8", features = ["v4"] }
-codec = { package = "parity-scale-codec", version = "2.0.0", features = ["derive", "full"] }
-ethereum-types = { version = "0.11", default-features = false, features = ["codec"] }
 rand = "0.8"
-sha2 = "0.9"
+sha2 = "0.10"
 hex = "0.4"
 url = "2.2"
 
-# Pallets
-frame-support = "3.0.0"
+# Arkworks
+ark-ff = { version = "^0.3.0", default-features = true }
+ark-serialize = "0.3.0"
+ark-crypto-primitives = { version = "^0.3.0", default-features = true, features = [
+   "r1cs",
+] }
+ark-ed-on-bn254 = { version = "^0.3.0", default-features = true, features = [
+   "r1cs",
+] }
+ark-bn254 = { version = "^0.3.0", default-features = true, features = [
+   "curve",
+] }
+ark-bls12-381 = { version = "^0.3.0", default-features = false, features = [
+   "curve",
+] }
+ark-std = { version = "^0.3.0" }
+arkworks-gadgets = { version = "0.4.18", default-features = true }
+arkworks-circuits = { version = "0.4.18", default-features = false }
+arkworks-utils = { version = "0.4.18", default-features = false }
 
+# Runtime
+tokio = { version = "^1", features = ["full"] }
+# SDK
+webb = { git = "https://github.com/webb-tools/webb-rs.git", rev = "17a4e48", default-features = false }
+webb-pedersen-hash = { git = "https://github.com/webb-tools/webb-rs.git", rev = "17a4e48", default-features = false }
 # CLI
 anyhow = { version = "1.0", optional = true }
-env_logger = { version = "0.8", optional = true }
+tracing-subscriber = { version = "0.3", optional = true }
 structopt = { version = "0.3", optional = true, features = ["paw"] }
 paw = { version = "1.0", optional = true }
 sled = { version = "0.34", optional = true }
 directories-next = { version = "2.0", optional = true }
-prost = { version = "0.7", optional = true }
-secrecy = { version = "0.7", optional = true }
-chacha = { version = "0.7", optional = true, package = "chacha20poly1305" }
-console = { version = "0.13", optional = true }
-indicatif = { version = "0.15", optional = true }
-dialoguer = { version = "0.7", optional = true }
+prost = { version = "0.9", optional = true }
+secrecy = { version = "0.8", optional = true }
+chacha = { version = "0.9", optional = true, package = "chacha20poly1305" }
+console = { version = "0.15", optional = true }
+indicatif = { version = "0.16", optional = true }
+dialoguer = { version = "0.9", optional = true }
 serde_json = { version = "1", optional = true }
-# Anon
-merlin = "2.0.0"
 
-[dependencies.curve25519-dalek]
-version = "3.0.0"
-default-features = false
-features = ["u64_backend", "alloc"]
-
-[dependencies.bulletproofs]
-version = "2.0.0"
-package = "webb-bulletproofs"
-default-features = false
-features = ["yoloproofs"]
-
-[dependencies.bulletproofs-gadgets]
-version = "2.0.0"
-default-features = false
 
 [features]
 default = []
 cli = [
    "structopt",
    "paw",
-   "env_logger",
+   "tracing-subscriber",
    "anyhow",
-   "async-std/attributes",
    "sled",
    "directories-next",
    "prost",
@@ -86,11 +85,11 @@ cli = [
    "console",
    "indicatif",
    "dialoguer",
-   "serde_json"
+   "serde_json",
+   "webb/substrate-runtime",
 ]
 integration-tests = []
 
 [dev-dependencies]
-async-std = { version = "1.8", features = ["attributes"] }
-sp-keyring = "3.0.0"
+sp-keyring = "4.0.0"
 criterion = "0.3"

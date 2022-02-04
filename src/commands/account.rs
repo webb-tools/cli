@@ -8,6 +8,7 @@ use secrecy::SecretString;
 use structopt::StructOpt;
 use subxt::sp_core::crypto::{Ss58AddressFormat, Ss58Codec};
 use subxt::sp_runtime::traits::IdentifyAccount;
+use webb::substrate::subxt;
 
 use crate::context::ExecutionContext;
 use crate::ext::OptionPromptExt;

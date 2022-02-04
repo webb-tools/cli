@@ -5,17 +5,12 @@ use anyhow::Context;
 use async_trait::async_trait;
 use console::{style, Emoji};
 use indicatif::{ProgressBar, ProgressStyle};
-use jsonrpsee_types::jsonrpc::Params;
 use secrecy::SecretString;
 use structopt::StructOpt;
 use subxt::sp_core::crypto::AccountId32;
-use subxt::system::*;
 use subxt::{RpcClient, Signer};
+use webb::substrate::subxt;
 use webb_cli::mixer::{Mixer, Note, TokenSymbol};
-use webb_cli::pallet::merkle::*;
-use webb_cli::pallet::mixer::*;
-use webb_cli::pallet::ScalarData;
-use webb_cli::runtime::WebbRuntime;
 
 use crate::context::{ExecutionContext, SystemProperties};
 use crate::ext::OptionPromptExt;
