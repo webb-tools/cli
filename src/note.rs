@@ -2,8 +2,8 @@ use core::fmt;
 use std::str::FromStr;
 
 use arkworks_utils::utils::common::Curve as ArkCurve;
-use secrecy::Zeroize;
 use typed_builder::TypedBuilder;
+use zeroize::Zeroize;
 
 use crate::error::Error;
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
