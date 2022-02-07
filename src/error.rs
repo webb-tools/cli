@@ -1,11 +1,12 @@
 use thiserror::Error;
+use webb::substrate::{protocol_substrate_runtime::api::DispatchError, subxt};
 
 #[derive(Debug, Error)]
 pub enum Error {
     #[error(transparent)]
     Io(#[from] std::io::Error),
     #[error(transparent)]
-    Subxt(#[from] subxt::Error),
+    Subxt(#[from] subxt::Error<DispatchError>),
     #[error("Mnemonic: {}", _0)]
     Mnemonic(String),
     #[error("Secret: {:?}", _0)]
@@ -18,16 +19,24 @@ pub enum Error {
     UnsupportedTokenSymbol(String),
     #[error("Unsupported Note Version: {}", _0)]
     UnsupportedNoteVersion(String),
-    #[error("Invalid Note Length")]
-    InvalidNoteLength,
-    #[error("Invalid Note Prefix")]
-    InvalidNotePrefix,
-    #[error("Invalid Note Mixer ID")]
-    InvalidNoteMixerId,
-    #[error("Invalid Note Block Number")]
-    InvalidNoteBlockNumber,
-    #[error("Invalid Note Footer")]
-    InvalidNoteFooter,
+    #[error("Unsupported Note Backend: {}", _0)]
+    UnsupportedNoteBackend(String),
+    #[error("Unsupported Note Curve: {}", _0)]
+    UnsupportedNoteCurve(String),
+    #[error("Unsupported Note Hash Function: {}", _0)]
+    UnsupportedNoteHashFunction(String),
+    #[error("Unsupported Note Prefix: {}", _0)]
+    UnsupportedNotePrefix(String),
+    #[error("Invalid Note format! Please double check your note.")]
+    InvalidNoteFormat,
+    #[error("Invalid Chain Id in your note.")]
+    InvalidChainId,
+    #[error("Invalid Note Secrets (must be 64 bytes).")]
+    InvalidNoteSecrets,
     #[error("not A 32 bytes array")]
     NotA32BytesArray,
+    #[error("Failed to generate secure secrets.")]
+    FailedToGenerateSecrets,
+    #[error("Failed to generate leaf.")]
+    FailedToGenerateLeaf,
 }

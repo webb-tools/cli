@@ -1,19 +1,25 @@
 use core::fmt;
 
-use subxt::sp_core::sr25519::Pair as Sr25519Pair;
-use subxt::sp_core::Pair;
-use subxt::PairSigner;
 use uuid::Uuid;
+use webb::substrate::subxt::{
+    sp_core::{crypto::Pair, sr25519::Pair as Sr25519Pair},
+    PairSigner, {self},
+};
 
-use crate::error::Error;
-use crate::keystore::{KeyPair, PublicFor};
-use crate::runtime::WebbRuntime;
+use crate::{
+    error::Error,
+    keystore::{KeyPair, PublicFor},
+};
 
 pub struct Account {
     pub uuid: Uuid,
     pub alias: String,
     pub address: PublicFor<Sr25519Pair>,
-    pub signer: PairSigner<WebbRuntime, Sr25519Pair>,
+    pub signer: PairSigner<
+        subxt::DefaultConfig,
+        subxt::DefaultExtra<subxt::DefaultConfig>,
+        Sr25519Pair,
+    >,
     pub seed: [u8; 32],
 }
 
@@ -24,7 +30,7 @@ impl fmt::Debug for Account {
             .field("alias", &self.alias)
             .field("address", &self.address)
             .field("signer", &"[....]")
-            .field("entropy", &"[....]")
+            .field("seed", &"[....]")
             .finish()
     }
 }

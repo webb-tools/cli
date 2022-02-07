@@ -61,7 +61,7 @@ jobs:
         channel: [stable]
         target:
           # MSVC
-          - i686-pc-windows-msvc
+          # - i686-pc-windows-msvc
           - x86_64-pc-windows-msvc
           # GNU:
           # You typically only need to test Windows GNU if you're
@@ -86,7 +86,7 @@ jobs:
             ~/.cargo/bin
             target
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}-${{ matrix.target }}
- 
+
       - uses: actions/download-artifact@v1
         with:
           name: cross-apple-darwin
@@ -106,6 +106,7 @@ jobs:
         channel: [stable]
         target:
           # macOS
+          - aarch64-apple-darwin
           - x86_64-apple-darwin
           # iOS
           # - aarch64-apple-ios
@@ -165,8 +166,8 @@ jobs:
           # - armv7-unknown-linux-musleabihf
           # - i586-unknown-linux-gnu
           # - i586-unknown-linux-musl
-          - i686-unknown-linux-gnu
-          - i686-unknown-linux-musl
+          # - i686-unknown-linux-gnu
+          # - i686-unknown-linux-musl
           # - mips-unknown-linux-gnu
           # - mips-unknown-linux-musl
           # - mips64-unknown-linux-gnuabi64

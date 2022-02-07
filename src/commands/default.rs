@@ -29,8 +29,8 @@ impl super::CommandExec for DefaultCommand {
             // Prompt the user to choose one of the accounts.
             let non_default_accounts: Vec<_> = context
                 .accounts()
-                .to_owned()
-                .into_iter()
+                .iter()
+                .cloned()
                 .filter(|a| !a.is_default)
                 .map(|v| v.alias)
                 .collect();

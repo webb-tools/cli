@@ -1,22 +1,33 @@
-use std::path::PathBuf;
-use std::sync::Arc;
+use std::{path::PathBuf, str::FromStr};
 
 use anyhow::{Context, Result};
 use bip39::Mnemonic;
 use directories_next::ProjectDirs;
-use jsonrpsee_ws_client::{WsClient, WsConfig};
-use secrecy::SecretString;
-use subxt::sp_core::sr25519::Pair as Sr25519Pair;
-use subxt::sp_core::Pair;
-use subxt::{Client, PairSigner, RpcClient};
-use webb_cli::account;
-use webb_cli::keystore::PublicFor;
-use webb_cli::mixer::{Mixer, Note, TokenSymbol};
-use webb_cli::runtime::WebbRuntime;
+use secrecy::{SecretString, Zeroize};
+use subxt::{
+    sp_core::{sr25519::Pair as Sr25519Pair, Pair},
+    PairSigner,
+};
+use webb::substrate::{
+    protocol_substrate_runtime::api::{
+        runtime_types::{
+            frame_support::storage::bounded_vec::BoundedVec,
+            pallet_asset_registry::types::AssetDetails,
+            pallet_mixer::types::MixerMetadata,
+        },
+        RuntimeApi,
+    },
+    subxt,
+};
+use webb_cli::{account, keystore::PublicFor, mixer, note};
 
-use crate::database::SledDatastore;
-use crate::raw::{AccountRaw, AccountsIds, NoteRaw, NotesIds};
+use crate::{
+    database::SledDatastore,
+    raw::{AccountRaw, AccountsIds, NoteRaw, NotesIds},
+};
 
+type WebbRuntimeApi =
+    RuntimeApi<subxt::DefaultConfig, subxt::DefaultExtra<subxt::DefaultConfig>>;
 /// Commands Execution Context.
 ///
 /// Holds the state needed for all commands.
@@ -58,7 +69,15 @@ impl ExecutionContext {
             .context("must have a default account")
     }
 
-    pub fn signer(&self) -> Result<PairSigner<WebbRuntime, Sr25519Pair>> {
+    pub fn signer(
+        &self,
+    ) -> Result<
+        PairSigner<
+            subxt::DefaultConfig,
+            subxt::DefaultExtra<subxt::DefaultConfig>,
+            Sr25519Pair,
+        >,
+    > {
         let default_account = self.default_account()?;
         let mut seed_key = default_account.uuid.clone();
         seed_key.push_str("_seed");
@@ -79,18 +98,12 @@ impl ExecutionContext {
 
     pub fn notes(&self) -> &[NoteRaw] { self.notes.as_slice() }
 
-    pub async fn client(&self) -> Result<Client<WebbRuntime>> {
+    pub async fn client(&self) -> Result<WebbRuntimeApi> {
         let client = subxt::ClientBuilder::new()
             .set_url(self.rpc_url.as_str())
             .build()
             .await?;
-        Ok(client)
-    }
-
-    pub async fn rpc_client(&self) -> Result<RpcClient> {
-        let mut config = WsConfig::with_url(self.rpc_url.as_str());
-        config.max_notifs_per_subscription = 4096;
-        Ok(RpcClient::WebSocket(Arc::new(WsClient::new(config).await?)))
+        Ok(client.to_runtime_api())
     }
 
     pub fn has_secret(&self) -> bool { self.db.has_secret() }
@@ -212,21 +225,49 @@ impl ExecutionContext {
     pub fn generate_note(
         &mut self,
         alias: String,
-        mixer_id: u32,
-        token_symbol: TokenSymbol,
+        asset: AssetDetails<u32, u128, BoundedVec<u8>>,
+        mixer: MixerMetadata<u128, u32>,
+        denomination: u8,
+        chain_id: u32,
     ) -> Result<()> {
-        let mut mixer = Mixer::new(mixer_id);
-        let note = mixer.generate_note(token_symbol);
-        self.import_note(alias, note)?;
+        let curve = note::Curve::Bn254;
+        let exponentiation = 5;
+        let width = 5;
+        let rng = &mut rand::thread_rng();
+        let asset_name = String::from_utf8_lossy(&asset.name.0).to_string();
+        let secret =
+            mixer::generate_secrets(curve, exponentiation, width, rng)?;
+        let v = note::Note::builder()
+            .prefix(note::NotePrefix::Mixer)
+            .version(note::NoteVersion::V1)
+            .target_chain_id(chain_id)
+            .source_chain_id(chain_id)
+            .backend(note::Backend::Circom)
+            .hash_function(note::HashFunction::Poseidon)
+            .curve(curve)
+            .exponentiation(exponentiation)
+            .width(width)
+            .token_symbol(asset_name)
+            .amount(mixer.deposit_size.to_string())
+            .denomination(denomination)
+            .secret(secret)
+            .build();
+        self.import_note(alias, v)?;
         Ok(())
     }
 
-    pub fn import_note(&mut self, alias: String, note: Note) -> Result<u32> {
+    pub fn import_note(
+        &mut self,
+        alias: String,
+        mut note: note::Note,
+    ) -> Result<String> {
         let uuid = uuid::Uuid::new_v4();
+        let secret = zeroize::Zeroizing::new(note.secret);
+        // zeroize the secret in the note.
+        note.secret.zeroize();
         let raw = NoteRaw {
             alias,
-            mixer_id: note.mixer_id,
-            token_symbol: note.token_symbol.to_string(),
+            value: note.to_string(),
             uuid: uuid.to_string(),
             used: false,
         };
@@ -235,8 +276,7 @@ impl ExecutionContext {
         self.db.write_plaintext(uuid.to_string().as_bytes(), buf)?;
         let mut secret_key = uuid.to_string();
         secret_key.push_str("_secret");
-        let note_secret = note.to_string().into_bytes();
-        self.db.write(secret_key.as_bytes(), note_secret)?;
+        self.db.write(secret_key.as_bytes(), &secret[..])?;
         let maybe_ids = self.db.read_plaintext(b"notes_ids")?;
         let v = match maybe_ids {
             Some(b) => {
@@ -251,18 +291,28 @@ impl ExecutionContext {
         let mut buf = Vec::new();
         prost::Message::encode(&v, &mut buf)?;
         self.db.write_plaintext(b"notes_ids", buf)?;
-        Ok(raw.mixer_id)
+        Ok(raw.uuid)
     }
 
-    pub fn decrypt_note(&self, uuid: String) -> Result<Note> {
+    pub fn decrypt_note(&self, uuid: String) -> Result<note::Note> {
         let mut key = uuid;
+        let raw = self
+            .db
+            .read_plaintext(key.as_bytes())?
+            .context("note not found")?;
+        let note: NoteRaw = prost::Message::decode(raw.as_ref())?;
         key.push_str("_secret");
-        let buf = self
+        let secret = self
             .db
             .read(key.as_bytes())?
-            .context("finding the encrypted note")?;
-        let note_str = String::from_utf8(buf.to_vec())?;
-        let note = note_str.parse()?;
+            .context("finding the encrypted note")?
+            .to_vec()
+            .try_into()
+            .map_err(|_| {
+                anyhow::anyhow!("invalid secret bytes (not 64 bytes)")
+            })?;
+        let mut note = note::Note::from_str(&note.value)?;
+        note.secret = secret;
         Ok(note)
     }
 
@@ -327,7 +377,8 @@ impl ExecutionContext {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct SystemProperties {
     /// The address format
     pub ss58_format: u8,
@@ -340,23 +391,22 @@ pub struct SystemProperties {
 impl Default for SystemProperties {
     fn default() -> Self {
         Self {
-            ss58_format: 100,
+            ss58_format: 42,
             token_decimals: 12,
             token_symbol: String::from("Unit"),
         }
     }
 }
 
-impl<'a> From<&'a subxt::SystemProperties> for SystemProperties {
-    fn from(v: &'a subxt::SystemProperties) -> Self {
-        if subxt::SystemProperties::default().eq(v) {
-            Self::default()
-        } else {
-            Self {
-                ss58_format: v.ss58_format,
-                token_decimals: v.token_decimals,
-                token_symbol: v.token_symbol.clone(),
-            }
+impl From<subxt::SystemProperties> for SystemProperties {
+    fn from(v: subxt::SystemProperties) -> Self {
+        let json = serde_json::Value::Object(v);
+        match serde_json::from_value(json) {
+            Ok(v) => v,
+            Err(e) => {
+                tracing::warn!("Failed to deserialize SystemProperties: {}", e);
+                Self::default()
+            },
         }
     }
 }

@@ -1,6 +1,8 @@
 use anyhow::Context;
-use chacha::aead::{Aead, NewAead};
-use chacha::{Key, XChaCha20Poly1305, XNonce};
+use chacha::{
+    aead::{Aead, NewAead},
+    Key, XChaCha20Poly1305, XNonce,
+};
 use directories_next::ProjectDirs;
 use rand::RngCore;
 use secrecy::{SecretString, Zeroize};
@@ -83,7 +85,7 @@ impl SledDatastore {
         let enckey = Key::from_slice(&enckey_hash);
         let aead = XChaCha20Poly1305::new(enckey);
         let mut encrypted = aead
-            .encrypt(&nonce, value.into().as_ref())
+            .encrypt(nonce, value.into().as_ref())
             .map_err(|_| anyhow::anyhow!("datastore encryption failed"))
             .context("data encryption")?;
         buffer.extend(&nonce_bytes); // add nonce. [0..24]

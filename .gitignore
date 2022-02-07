@@ -60,3 +60,6 @@ atlassian-ide-plugin.xml
 .idea/replstate.xml
 /.idea
 /.undodir # Vim Workspaces
+
+# VS Code
+.vscode/*

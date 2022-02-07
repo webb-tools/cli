@@ -15,6 +15,7 @@ mod utils;
 use commands::{CommandExec, NodeOpts, PasswordOpts, SubCommand};
 use context::ExecutionContext;
 use database::SledDatastore;
+use tracing::Level;
 
 const PACKAGE_ID: [&str; 3] = ["tools", "webb", "webb-cli"];
 
@@ -55,21 +56,25 @@ struct Opts {
 }
 
 #[paw::main]
-#[async_std::main]
+#[tokio::main]
 async fn main(args: Opts) -> anyhow::Result<()> {
     let log_level = match args.verbose {
-        0 => log::LevelFilter::Error,
-        1 => log::LevelFilter::Warn,
-        2 => log::LevelFilter::Info,
-        3 => log::LevelFilter::Debug,
-        _ => log::LevelFilter::max(),
+        0 => Level::ERROR,
+        1 => Level::WARN,
+        2 => Level::INFO,
+        3 => Level::DEBUG,
+        _ => Level::TRACE,
     };
     // setup logger
-    env_logger::builder()
-        .format_timestamp(None)
-        .filter_module("webb", log_level)
+    let env_filter = tracing_subscriber::EnvFilter::from_default_env()
+        .add_directive(format!("webb={}", log_level).parse()?);
+    tracing_subscriber::fmt()
+        .pretty()
+        .with_target(true)
+        .with_max_level(log_level)
+        .with_env_filter(env_filter)
         .init();
-    log::debug!("Getting default dirs for webb cli");
+    tracing::debug!("Getting default dirs for webb cli");
     let dirs = ProjectDirs::from(
         crate::PACKAGE_ID[0],
         crate::PACKAGE_ID[1],
@@ -77,18 +82,18 @@ async fn main(args: Opts) -> anyhow::Result<()> {
     )
     .context("getting project data")?;
 
-    log::debug!("our data dirs live in: {}", dirs.data_dir().display());
-    log::debug!("now let's try to get the account password");
+    tracing::debug!("our data dirs live in: {}", dirs.data_dir().display());
+    tracing::debug!("now let's try to get the account password");
     let db = if let Some(secret) = password(&args)? {
-        log::debug!("now we have a secret, creating a secret datastore!");
+        tracing::debug!("now we have a secret, creating a secret datastore!");
         SledDatastore::with_secret(secret)
     } else {
-        log::debug!("no secrets provided, open the datastore anyway");
+        tracing::debug!("no secrets provided, open the datastore anyway");
         SledDatastore::new()
     }
     .context("failed to open the secret datastore!")?;
 
-    log::debug!("creating an execution context for all of the commands");
+    tracing::debug!("creating an execution context for all of the commands");
     let mut context = ExecutionContext::new(db, dirs, args.node.url)
         .context("create execution context for other commands")?;
     match args.sub {
@@ -114,7 +119,7 @@ fn password(args: &Opts) -> anyhow::Result<Option<SecretString>> {
             .context("trying to read the password from the file")?;
         Ok(Some(SecretString::new(password)))
     } else if password_opts.password.is_some() && args.unsafe_flag {
-        log::warn!("using unsafe flag!!");
+        tracing::warn!("using unsafe flag!!");
         // TODO(shekohex): emit a warning here about unsafe flag.
         Ok(password_opts.password.clone())
     } else if password_opts.password.is_some() && !args.unsafe_flag {
