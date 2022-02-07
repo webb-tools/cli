@@ -2,6 +2,7 @@ use std::fmt;
 
 use console::Emoji;
 use prost::Message;
+use webb_cli::note::Note;
 
 #[derive(Clone, PartialEq, Message)]
 pub struct AccountRaw {
@@ -43,16 +44,18 @@ pub struct NoteRaw {
     pub uuid: String,
     #[prost(string, tag = "2")]
     pub alias: String,
-    #[prost(string, tag = "3")]
-    pub token_symbol: String,
-    #[prost(uint32, tag = "4")]
-    pub mixer_id: u32,
-    #[prost(bool, tag = "6")]
+    #[prost(bool, tag = "3")]
     pub used: bool,
+    #[prost(string, tag = "4")]
+    pub value: String,
 }
 
 impl fmt::Display for NoteRaw {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let note = self.value.parse::<Note>().map_err(|e| {
+            let _ = write!(f, "Error parsing note: {}", e);
+            fmt::Error
+        })?;
         write!(
             f,
             "{} ",
@@ -64,8 +67,8 @@ impl fmt::Display for NoteRaw {
         )?;
         write!(
             f,
-            "{} with {} Token at #{} Mixer Group",
-            self.alias, self.token_symbol, self.mixer_id
+            "{} with {} {}",
+            self.alias, note.amount, note.token_symbol,
         )?;
         Ok(())
     }

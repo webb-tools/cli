@@ -1,12 +1,15 @@
 use core::fmt;
 
 use uuid::Uuid;
-use webb::substrate::subxt::sp_core::crypto::Pair;
-use webb::substrate::subxt::sp_core::sr25519::Pair as Sr25519Pair;
-use webb::substrate::subxt::{self, PairSigner};
+use webb::substrate::subxt::{
+    sp_core::{crypto::Pair, sr25519::Pair as Sr25519Pair},
+    PairSigner, {self},
+};
 
-use crate::error::Error;
-use crate::keystore::{KeyPair, PublicFor};
+use crate::{
+    error::Error,
+    keystore::{KeyPair, PublicFor},
+};
 
 pub struct Account {
     pub uuid: Uuid,

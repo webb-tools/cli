@@ -4,8 +4,7 @@ use async_trait::async_trait;
 use secrecy::SecretString;
 use structopt::StructOpt;
 
-use crate::context::ExecutionContext;
-use crate::utils;
+use crate::{context::ExecutionContext, utils};
 
 mod account;
 mod default;

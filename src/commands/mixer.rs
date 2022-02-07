@@ -1,6 +1,4 @@
-use std::collections::HashMap;
-use std::io::Write;
-use std::str::FromStr;
+use std::{collections::HashMap, io::Write, str::FromStr};
 
 use anyhow::Context;
 use async_trait::async_trait;
@@ -8,13 +6,14 @@ use console::{style, Emoji};
 use indicatif::{ProgressBar, ProgressStyle};
 use secrecy::SecretString;
 use structopt::StructOpt;
-use subxt::sp_core::crypto::AccountId32;
-use subxt::{RpcClient, Signer};
-use webb::substrate::subxt;
-use webb_cli::mixer::{Mixer, Note, TokenSymbol};
+use subxt::Signer;
+use webb::substrate::subxt::{self, TransactionStatus};
+use webb_cli::{mixer, note::Note};
 
-use crate::context::{ExecutionContext, SystemProperties};
-use crate::ext::OptionPromptExt;
+use crate::{
+    context::{ExecutionContext, SystemProperties},
+    ext::OptionPromptExt,
+};
 
 /// Webb Crypto Mixer.
 #[derive(StructOpt)]
@@ -158,13 +157,16 @@ impl super::CommandExec for GenerateNote {
         pb.set_prefix("[1/3]");
         pb.set_message("Connecting ..");
         let api = context.client().await?;
+        let props_raw = api.client.rpc().system_properties().await?;
+        let props = SystemProperties::from(props_raw);
+        let chain_id = api.constants().bridge().chain_identifier()?;
         pb.set_prefix("[2/3]");
         pb.set_message("Fetching Mixers and assets ..");
-        let mixers_iter = api.storage().mixer_bn254().mixers_iter(None).await?;
+        let mut mixers_iter =
+            api.storage().mixer_bn254().mixers_iter(None).await?;
         let mut mixers = Vec::new();
         let mut assets = HashMap::new();
         while let Some((_, mixer)) = mixers_iter.next().await? {
-            mixers.push(mixer);
             let asset = api
                 .storage()
                 .asset_registry()
@@ -175,17 +177,18 @@ impl super::CommandExec for GenerateNote {
                     mixer.asset
                 ))?;
             assets.insert(mixer.asset, asset);
+            mixers.push(mixer);
         }
         pb.finish_and_clear();
-        let mixer = if let Some(val) = self.size {
+        let (asset, mixer) = if let Some(val) = self.size {
             // find the mixer with the size.
-            let size = val.into();
+            let size = val;
             let maybe_mixer = mixers
                 .iter()
                 .find(|mixer| mixer.deposit_size == size)
                 .cloned();
             match maybe_mixer {
-                Some(v) => v,
+                Some(v) => (assets[&v.asset].clone(), v),
                 None => {
                     let sizes = mixers
                         .iter()
@@ -211,7 +214,7 @@ impl super::CommandExec for GenerateNote {
                 .with_prompt("Select Your Mixer")
                 .items(&items)
                 .interact_on(&term)?;
-            mixers[i]
+            (assets[&mixers[i].asset].clone(), mixers[i].clone())
         };
         if !context.has_secret() {
             let password = Option::<SecretString>::None
@@ -231,16 +234,17 @@ impl super::CommandExec for GenerateNote {
         pb.set_message("Generating Note..");
         context.generate_note(
             alias.clone(),
-            mixer_group_id,
-            TokenSymbol::Edg,
+            asset,
+            mixer,
+            props.token_decimals,
+            chain_id as _,
         )?;
         pb.finish_with_message("Done!");
         pb.finish_and_clear();
         writeln!(
             term,
-            "Note Generated with alias {} for #{} Mixer Group",
+            "Note Generated with alias {} and saved locally",
             style(alias).green(),
-            mixer_group_id
         )?;
         writeln!(term)?;
         writeln!(term, "Next, Do a dopist using this note.")?;
@@ -287,7 +291,7 @@ impl super::CommandExec for DepositAsset {
             writeln!(term, "try generating new ones or importing them.")?;
             writeln!(term)?;
             writeln!(term, "$ webb mixer help")?;
-            return Ok(());
+            anyhow::bail!("No notes saved!");
         }
         let note = if let Some(val) = self.alias {
             notes
@@ -318,46 +322,114 @@ impl super::CommandExec for DepositAsset {
             .signer()
             .context("incorrect default account password!")?;
         let secret_note = context.decrypt_note(note.uuid.clone())?;
+        let api = context.client().await?;
         let pb = ProgressBar::new_spinner();
         let pb_style = ProgressStyle::default_spinner()
             .tick_chars("⠁⠂⠄⡀⢀⠠⠐⠈ ")
             .template("{prefix:.bold.dim} {spinner} {wide_msg}");
         pb.enable_steady_tick(60);
         pb.set_style(pb_style);
-        pb.set_prefix("[1/4]");
-        pb.set_message("Creating Mixer..");
-        let mut mixer = Mixer::new(secret_note.mixer_id);
-        pb.set_prefix("[2/4]");
-        pb.set_message("Adding Note to the Mixer ...");
-        let leaf = mixer.save_note(secret_note);
-        pb.set_prefix("[3/4]");
-        pb.set_message("Connecting to the network...");
-        let api = context.client().await?;
-        pb.set_prefix("[4/4]");
+        pb.set_prefix("[1/3]");
+        pb.set_message("Fetching Mixers and assets ..");
+        let mixer_count =
+            api.storage().merkle_tree_bn254().next_tree_id(None).await?;
+        let mut mixers = HashMap::new();
+        let mut assets = HashMap::new();
+        for i in 0..mixer_count {
+            let maybe_mixer =
+                api.storage().mixer_bn254().mixers(i, None).await?;
+            let mixer = match maybe_mixer {
+                Some(m) => m,
+                None => continue,
+            };
+            let asset = api
+                .storage()
+                .asset_registry()
+                .assets(mixer.asset, None)
+                .await?
+                .context(format!(
+                    "failed to fetch asset #{} information",
+                    mixer.asset
+                ))?;
+            assets.insert(mixer.asset, asset);
+            mixers.insert(i, mixer);
+        }
+
+        let (asset_id, _) = assets
+            .into_iter()
+            .find(|(_, a)| a.name.0 == secret_note.token_symbol.as_bytes())
+            .context(format!(
+                "No asset with symbol {} found on-chain!",
+                secret_note.token_symbol
+            ))?;
+        let note_deposit_size = u128::from_str(&secret_note.amount)
+            .context("failed to parse note deposit size from it's amount")?;
+        let (mixer_id, _) = mixers
+            .into_iter()
+            .find(|(_, m)| {
+                m.asset == asset_id && m.deposit_size == note_deposit_size
+            })
+            .context("No mixer found for this asset!")?;
+        pb.set_prefix("[2/3]");
+        pb.set_message("Generating Your secret leaf ...");
+        let (leaf, ..) = mixer::get_leaf_from_note(&secret_note)?;
+        pb.set_prefix("[3/3]");
         pb.set_message("Doing the deposit...");
-        let xt = client
-            .deposit_and_watch(&signer, note.mixer_id, vec![leaf])
+        let mut progress = api
+            .tx()
+            .mixer_bn254()
+            .deposit(mixer_id, leaf)
+            .sign_and_submit_then_watch(&signer)
             .await?;
+        while let Some(state) = progress.next_item().await {
+            let s = state?;
+            match s {
+                TransactionStatus::Ready => {
+                    pb.set_message("Transaction is ready ...")
+                },
+                TransactionStatus::Broadcast(_) => {
+                    pb.set_message("Transaction is broadcasted ...");
+                },
+                TransactionStatus::InBlock(details) => {
+                    let tx_hash = details.block_hash();
+                    pb.set_message(format!(
+                        "Transaction is in block {tx_hash}"
+                    ));
+                },
+                TransactionStatus::Retracted(_) => {
+                    pb.set_message("Transaction is retracted ...");
+                },
+                TransactionStatus::FinalityTimeout(_) => {
+                    pb.set_message("Transaction is timeout ...");
+                },
+                TransactionStatus::Finalized(details) => {
+                    let tx_hash = details.block_hash();
+                    pb.set_message(format!(
+                        "Transaction is finalized {tx_hash}"
+                    ));
+                },
+                TransactionStatus::Usurped(_) => {
+                    pb.set_message("Transaction is usurped ...");
+                },
+                TransactionStatus::Dropped => {
+                    pb.set_message("Transaction is dropped ...");
+                },
+                TransactionStatus::Invalid => {
+                    pb.set_message("Transaction is invalid ...");
+                    anyhow::bail!("Transaction is invalid!");
+                },
+                _ => continue,
+            };
+        }
         context.mark_note_as_used(note.uuid)?;
         pb.finish_and_clear();
-        let xt_block = xt.block;
-        let maybe_block = client.block(Some(xt_block)).await?;
-        let signed_block =
-            maybe_block.context("reading block from network!")?;
-        let number = signed_block.block.header.number;
-        let hash = signed_block.block.header.hash();
-        let account_id = signer.account_id();
-        let account = client.account(&account_id, None).await?;
-        let props = SystemProperties::from(client.properties());
+        let account_id = signer.account_id().clone();
+        let account = api.storage().system().account(account_id, None).await?;
+        let props_raw = api.client.rpc().system_properties().await?;
+        let props = SystemProperties::from(props_raw);
         let balance =
             account.data.free / 10u128.pow(props.token_decimals as u32);
         writeln!(term, "{} Note Deposited Successfully!", Emoji("🎉", "※"))?;
-        writeln!(
-            term,
-            "Block Number: #{} {}",
-            style(number).blue(),
-            style(hash).dim().green()
-        )?;
         writeln!(term)?;
         writeln!(
             term,
@@ -389,161 +461,6 @@ pub struct WithdrawAsset {
 #[async_trait]
 impl super::CommandExec for WithdrawAsset {
     async fn exec(self, context: &mut ExecutionContext) -> anyhow::Result<()> {
-        type MixerTrees = MixerTreesStore<WebbRuntime>;
-        type CachedRoots = CachedRootsStore<WebbRuntime>;
-
-        let mut term = console::Term::stdout();
-        let theme = dialoguer::theme::ColorfulTheme::default();
-        let notes: Vec<_> = context.notes().iter().filter(|n| n.used).collect();
-        if notes.is_empty() {
-            writeln!(term)?;
-            writeln!(term, "there is no used notes!")?;
-            writeln!(term, "try generating new ones and do a deposit first or importing them.")?;
-            writeln!(term)?;
-            writeln!(term, "$ webb mixer help")?;
-            return Ok(());
-        }
-        let note = if let Some(val) = self.alias {
-            notes
-                .into_iter()
-                .cloned()
-                .find(|n| n.alias == val)
-                .context("note not found")
-        } else {
-            let items: Vec<_> =
-                notes.iter().map(|n| format!("{}", n)).collect();
-            let notes = notes.to_owned();
-            let i = dialoguer::Select::with_theme(&theme)
-                .with_prompt("Select one of these notes")
-                .items(&items)
-                .interact_on(&term)?;
-            Ok(notes[i].clone())
-        }?;
-
-        if !context.has_secret() {
-            let password = Option::<SecretString>::None
-                .unwrap_or_prompt_password(
-                    "Default Account Password",
-                    &theme,
-                )?;
-            context.set_secret(password);
-        }
-        let signer = context
-            .signer()
-            .context("incorrect default account password!")?;
-        let secret_note = context.decrypt_note(note.uuid.clone())?;
-        let pb = ProgressBar::new_spinner();
-        let pb_style = ProgressStyle::default_spinner()
-            .tick_chars("⠁⠂⠄⡀⢀⠠⠐⠈ ")
-            .template("{prefix:.bold.dim} {spinner} {wide_msg}");
-        pb.enable_steady_tick(60);
-        pb.set_style(pb_style);
-        pb.set_prefix("[1/6]");
-        pb.set_message("Creating Mixer..");
-        let mut mixer = Mixer::new(secret_note.mixer_id);
-        pb.set_prefix("[2/6]");
-        pb.set_message("Adding Note to the Mixer ...");
-        let leaf = mixer.save_note(secret_note);
-        pb.set_prefix("[3/6]");
-        pb.set_message("Connecting to the network...");
-        let client = context.client().await?;
-        pb.set_prefix("[4/6]");
-        pb.set_message(&format!("Getting Mixer #{} leaves", note.mixer_id));
-        client
-            .fetch(&MixerTrees::new(note.mixer_id), None)
-            .await?
-            .context("mixer info not found!")?;
-        let rpc_client = context.rpc_client().await?;
-        let leaves = fetch_tree_leaves(&rpc_client, note.mixer_id).await?;
-        mixer.add_leaves(leaves);
-        let recent_hash = client.block_hash(None).await?;
-        let recent = client
-            .block(recent_hash)
-            .await?
-            .context("getting last block")?;
-        let roots = client
-            .fetch(
-                &CachedRoots::new(recent.block.header.number, note.mixer_id),
-                None,
-            )
-            .await?
-            .context("no cached roots on the block!")?;
-        let root = roots.first().cloned().context("recent roots are empty!")?;
-        pb.set_prefix("[5/6]");
-        pb.set_message("Generating zkProof ..");
-        let zkproof = mixer.generate_proof(root, leaf);
-        pb.set_prefix("[6/6]");
-        pb.set_message("Doing the Withdraw! ...");
-        let xt = client
-            .withdraw_and_watch(
-                &signer,
-                WithdrawProof {
-                    mixer_id: note.mixer_id,
-                    proof_commitments: zkproof.proof_commitments,
-                    leaf_index_commitments: zkproof.leaf_index_commitments,
-                    proof_bytes: zkproof.proof_bytes,
-                    nullifier_hash: zkproof.nullifier_hash,
-                    comms: zkproof.comms,
-                    relayer: Some(AccountId32::new(zkproof.relayer.0)),
-                    recipient: Some(AccountId32::new(zkproof.recipient.0)),
-                    cached_root: root,
-                    cached_block: recent.block.header.number,
-                },
-            )
-            .await?;
-        context.forget_note(note.uuid).context("remove old note")?;
-        pb.finish_and_clear();
-        let xt_block = xt.block;
-        let maybe_block = client.block(Some(xt_block)).await?;
-        let signed_block =
-            maybe_block.context("reading block from network!")?;
-        let number = signed_block.block.header.number;
-        let hash = signed_block.block.header.hash();
-        let account_id = signer.account_id();
-        let account = client.account(&account_id, None).await?;
-        let props = SystemProperties::from(client.properties());
-        let balance =
-            account.data.free / 10u128.pow(props.token_decimals as u32);
-        writeln!(term, "{} Note Withdrawn Successfully!", Emoji("🎉", "※"))?;
-        writeln!(
-            term,
-            "Block Number: #{} {}",
-            style(number).blue(),
-            style(hash).dim().green()
-        )?;
-        writeln!(term)?;
-        writeln!(
-            term,
-            "Your Current Free Balance: {} {}",
-            style(balance).green().bold(),
-            props.token_symbol,
-        )?;
-        Ok(())
+        todo!();
     }
-}
-
-/// fetch all the tree leaves in batches.
-async fn fetch_tree_leaves(
-    rpc_client: &RpcClient,
-    tree_id: u32,
-) -> anyhow::Result<Vec<ScalarData>> {
-    let mut from: u32 = 0;
-    let mut to: u32 = 511;
-    let mut total_leaves = Vec::new();
-    loop {
-        let leaves: Vec<[u8; 32]> = rpc_client
-            .request(
-                "merkle_treeLeaves",
-                Params::Array(vec![tree_id.into(), from.into(), to.into()]),
-            )
-            .await?;
-        if leaves.is_empty() {
-            break;
-        } else {
-            total_leaves.extend(leaves.into_iter().map(ScalarData));
-        }
-        from = to;
-        to += 511;
-    }
-    Ok(total_leaves)
 }

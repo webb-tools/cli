@@ -1,5 +1,4 @@
-use subxt::sp_core::sr25519::Pair as Sr25519Pair;
-use subxt::sp_core::Pair;
+use subxt::sp_core::{sr25519::Pair as Sr25519Pair, Pair};
 use webb::substrate::subxt;
 use zeroize::Zeroize;
 

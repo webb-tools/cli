@@ -4,16 +4,19 @@ use arkworks_circuits::setup::mixer::{
     setup_leaf_with_privates_raw_x5_5, setup_leaf_x5_5,
 };
 use arkworks_utils::utils::common::Curve as ArkworksCurve;
-use rand::rngs::OsRng;
+use rand::RngCore;
+use webb::substrate::protocol_substrate_runtime::api::runtime_types::webb_standalone_runtime::Element;
 
-use crate::error::Error;
-use crate::note::Curve;
+use crate::{
+    error::Error,
+    note::{Curve, Note},
+};
 
 pub fn generate_secrets(
     curve: Curve,
     exponentiation: u8,
     width: usize,
-    rng: &mut OsRng,
+    rng: &mut impl RngCore,
 ) -> Result<[u8; 64], Error> {
     let (secret_bytes, nullifier_bytes, ..) = match (curve, exponentiation, width) {
         (Curve::Bls381, 5, 5) => setup_leaf_x5_5::<BlsFr, _>(ArkworksCurve::Bls381, rng),
@@ -29,33 +32,36 @@ pub fn generate_secrets(
     Ok(secrets)
 }
 
-pub fn get_leaf_with_private_raw(
-    curve: Curve,
-    exponentiation: u8,
-    width: usize,
-    raw: &[u8],
-) -> Result<(Vec<u8>, Vec<u8>), Error> {
-    if raw.len() < 64 {
+pub fn get_leaf_from_note(note: &Note) -> Result<(Element, Element), Error> {
+    if note.secret.len() < 64 {
         return Err(Error::InvalidNoteSecrets);
     }
 
-    let secrets = raw[..32].to_vec();
-    let nullifer = raw[32..64].to_vec();
-    let sec = match (curve, exponentiation, width) {
+    let curve = note.curve;
+    let exponentiation = note.exponentiation;
+    let width = note.width;
+
+    let secret = note.secret[..32].to_vec();
+    let nullifer = note.secret[32..64].to_vec();
+    let (leaf, nullifer_hash) = match (curve, exponentiation, width) {
         (Curve::Bls381, 5, 5) => setup_leaf_with_privates_raw_x5_5::<BlsFr>(
             ArkworksCurve::Bls381,
-            secrets,
+            secret,
             nullifer,
         ),
         (Curve::Bn254, 5, 5) => setup_leaf_with_privates_raw_x5_5::<Bn254Fr>(
             ArkworksCurve::Bn254,
-            secrets,
+            secret,
             nullifer,
         ),
         _ => todo!(
             "mixer leaf for curve {curve}, exponentiation {exponentiation}, and width {width}"
         ),
     }
-    .map_err(|_| Error::FailedToGenerateSecrets)?;
-    Ok(sec)
+    .map(|(l, h)| match (l.try_into(), h.try_into()) {
+        (Ok(l), Ok(h)) => Ok((Element(l), Element(h))),
+        _ => Err(Error::NotA32BytesArray),
+    })
+    .map_err(|_| Error::FailedToGenerateLeaf)??;
+    Ok((leaf, nullifer_hash))
 }

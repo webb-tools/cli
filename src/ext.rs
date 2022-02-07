@@ -1,5 +1,4 @@
-use std::error::Error;
-use std::str::FromStr;
+use std::{error::Error, str::FromStr};
 
 use dialoguer::theme::Theme;
 

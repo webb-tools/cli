@@ -2,6 +2,7 @@ use core::fmt;
 use std::str::FromStr;
 
 use arkworks_utils::utils::common::Curve as ArkCurve;
+use secrecy::Zeroize;
 use typed_builder::TypedBuilder;
 
 use crate::error::Error;
@@ -180,6 +181,10 @@ pub struct Note {
     pub denomination: u8,
 }
 
+impl Zeroize for Note {
+    fn zeroize(&mut self) { self.secret.zeroize() }
+}
+
 impl fmt::Display for Note {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let secrets = hex::encode(&self.secret);
@@ -265,9 +270,16 @@ impl FromStr for Note {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::mixer;
 
     #[test]
     fn should_generate_and_parse_note_correctly() {
+        let curve = Curve::Bn254;
+        let exponentiation = 5;
+        let width = 5;
+        let rng = &mut rand::thread_rng();
+        let secret =
+            mixer::generate_secrets(curve, exponentiation, width, rng).unwrap();
         let note = Note::builder()
             .prefix(NotePrefix::Mixer)
             .version(NoteVersion::V1)
@@ -275,13 +287,13 @@ mod tests {
             .source_chain_id(2u32)
             .backend(Backend::Circom)
             .hash_function(HashFunction::Poseidon)
-            .curve(Curve::Bn254)
-            .exponentiation(5)
-            .width(5)
+            .curve(curve)
+            .exponentiation(exponentiation)
+            .width(width)
             .token_symbol("TEST")
             .amount("1")
             .denomination(1)
-            .secret([0; 64])
+            .secret(secret)
             .build();
         let note_str = note.to_string();
         let parsed_note = note_str.parse::<Note>().unwrap();

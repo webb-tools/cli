@@ -6,12 +6,13 @@ use console::{style, Emoji};
 use dialoguer::theme::ColorfulTheme;
 use secrecy::SecretString;
 use structopt::StructOpt;
-use subxt::sp_core::crypto::{Ss58AddressFormatRegistry, Ss58Codec};
-use subxt::sp_runtime::traits::IdentifyAccount;
+use subxt::{
+    sp_core::crypto::{Ss58AddressFormatRegistry, Ss58Codec},
+    sp_runtime::traits::IdentifyAccount,
+};
 use webb::substrate::subxt;
 
-use crate::context::ExecutionContext;
-use crate::ext::OptionPromptExt;
+use crate::{context::ExecutionContext, ext::OptionPromptExt};
 
 /// Modify or query the saved accounts.
 #[derive(StructOpt)]
@@ -176,7 +177,7 @@ impl super::CommandExec for GenerateAccount {
         writeln!(term, "Keep it carefully to not lose your assets.")?;
         writeln!(term)?;
         writeln!(term, "To set this account as default:")?;
-        writeln!(term, "    $ webb default {}", alias)?;
+        writeln!(term, "    $ webb default -a {}", alias)?;
         Ok(())
     }
 }

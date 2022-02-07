@@ -1,6 +1,5 @@
 use thiserror::Error;
-use webb::substrate::protocol_substrate_runtime::api::DispatchError;
-use webb::substrate::subxt;
+use webb::substrate::{protocol_substrate_runtime::api::DispatchError, subxt};
 
 #[derive(Debug, Error)]
 pub enum Error {
@@ -38,4 +37,6 @@ pub enum Error {
     NotA32BytesArray,
     #[error("Failed to generate secure secrets.")]
     FailedToGenerateSecrets,
+    #[error("Failed to generate leaf.")]
+    FailedToGenerateLeaf,
 }
